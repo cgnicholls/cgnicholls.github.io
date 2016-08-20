@@ -14,7 +14,7 @@ categories: reinforcement-learning
 \def\grad{\nabla}
 \\)
 
-# Introduction to reinforcement learning
+# Introduction to reinforcement learning #
 
 I've been looking into reinforcement learning recently, and discovered the
 [OpenAI gym](https://gym.openai.com/). This has many reinforcement learning
@@ -22,6 +22,8 @@ problems implemented, and with a nice API. I really enjoyed reading their
 [Getting Started guide](https://gym.openai.com/docs/rl), and thought I would
 give my own account of it. Here we describe how to solve a classic control
 problem: the cart and pole.
+
+## The cart and pole problem ##
 
 In this problem a cart attempts to vertically balance a pole by moving left and
 right along a one-dimensional space. At each time step, the cart receives its
@@ -47,8 +49,54 @@ cart. In the cart and pole problem, the reward is $r_t = +1$ for every time step
 $t$; thus the incentive is to keep the pole balanced for as long as possible. In
 general, the reward may depend on $x_t$ and $a_t$.
 
-Thus all we have to provide to the environment is a choice of action at every
-time step. We achieve this using a probability distribution $P(a | x)$ over the
+### Playing randomly ###
+
+Let's first see how well a random agent does against the problem. This is a good
+idea, as it gives a benchmark to compare our algorithms against. Sometimes it
+looks like your algorithm is working well, when in fact it's not doing any
+better than taking decisions uniformly at random.
+
+The following code implements a random agent in OpenAI Gym:
+
+~~~~python
+import numpy as np
+import random
+import gym
+
+# Make the CartPole environment
+env = gym.make('CartPole-v0')
+
+# Random agent
+def random_agent(num_episodes):
+    # Play num_episodes episodes
+    for i_episode in range(num_episodes):
+        # Initialise episode reward
+        episode_reward = 0
+        # Get the initial observation
+        observation = env.reset()
+        # Run for at most 1000 time steps
+        for t in range(1000):
+            # Render the environment
+            env.render()
+            # Randomly choose an action from the action space
+            action = env.action_space.sample()
+            # Take this action
+            observation, reward, done, info = env.step(action)
+            # Update episode reward
+            episode_reward += reward
+            # If the episode is over, print the episode reward
+            if done:
+                print("Total reward for episode: {}".format(episode_reward))
+                break
+
+# Play the random agent for 10 episodes
+random_agent(10)
+~~~~
+
+### Playing with a policy
+
+Instead of playing randomly, we want to choose our actions based on our current
+state. We achieve this using a probability distribution $P(a | x)$ over the
 possible actions, given the state, from which we sample our action at every
 step. If the state space were discrete, then the description $P(a | x)$ would
 suffice, but to work with a continuous state space, it is convenient to use a
@@ -57,7 +105,9 @@ $d$. Following conventional notation, we now write $\pi(a | x; \theta)$ instead
 of $P(a | x; \theta)$, and we henceforth call this the policy.
 
 Thus $\pi(a | x; \theta)$ is just a probability distribution that depends on $x$
-and $\theta$ that we will use to choose our actions.
+and $\theta$ that we will use to choose our actions: at time step $t$, if we are
+in state $x_t$, then we sample $a_t$ from the distribution $\pi(a_t | x_t;
+\theta)$.
 
 In the case of the cart and pole problem, the state already consists of
 excellent features for predicting the action, and so we just use linear
@@ -84,13 +134,15 @@ we sample $a_t \sim \pi(a_t | x_t; \theta)$, and the environment sends us back
 $r_{t+1}$ and $x_{t+1}$. Think of $r_{t+1}$ as the reward for having made action
 $a_t$ in state $x_t$.
 
+In more complicated situations, we would want a policy that does more than just
+take a linear combination of the features the environment gives us.
+
 # Learning the policy
-Our aim now is to learn a good parameter vector $\theta$ for the cart and pole
-problem. That is, find $\theta$ that maximises our expected total reward. For
-any fixed policy $\pi$, we can sample our Markov decision process, to get a
-trajectory $\tau = (x_0, a_0, r_1, x_1, a_1, r_2, \ldots, x_{T-1}, a_{T-1}, r_T,
-x_T)$. We let $R_\tau \coloneqq r_1 + r_2 + \cdots + r_T$ denote the total
-reward of the trajectory.
+Our aim now is to learn a good parameter vector $\theta$; that is, find $\theta$
+that maximises our expected total reward. For any fixed policy $\pi$, we can
+sample our Markov decision process, to get a trajectory $\tau = (x_0, a_0, r_1,
+x_1, a_1, r_2, \ldots, x_{T-1}, a_{T-1}, r_T, x_T)$. We let $R_\tau \coloneqq
+r_1 + r_2 + \cdots + r_T$ denote the total reward of the trajectory.
 
 Then the expected total reward for a given policy $\pi$ is $\EE_\tau[R | \pi]$,
 and our aim is to find $\pi$ that maximises this.
@@ -106,17 +158,17 @@ distribution over each one, with mean $\mu_i$ and variance $\sigma_i^2$, for $i
 $\RR^4$ such that $x \in \RR^4$ has $x_i \sim N(\mu_i, \sigma_i^2)$ for $i =
 1,2,3,4$.
 
-Let $N$ be a positive integer, called the batch size, and let $p \in (0, 1)$,
-called the elite fraction. We start with some initial values for $\mu$ and
-$\sigma^2$, say $\mu = (0,0,0,0), \sigma^2 = (1,1,1,1)$, and then repeat the
+Let $N$ be a positive integer, which we call the sample size, and let $p \in (0,
+1)$, which we call the elite fraction. Start with some initial values for $\mu$
+and $\sigma^2$, say $\mu = (0,0,0,0), \sigma^2 = (1,1,1,1)$, and then repeat the
 following process:
 
 ~~~~
 for j from 1 to N
-    theta(j) = sampleFromN(mu, sigma2)
-    reward(j) = estimateRewardWithTheta(theta(j))
-eliteTheta = best p x N theta
-mu, sigma2 = maximumLikelihoodNormal(eliteTheta)
+    theta(j) = sample_from_gaussian(mu, sigma2)
+    reward(j) = estimate_reward_with_theta(theta(j))
+elite_theta = best p x N theta
+mu, sigma2 = maximum_likelihood_gaussian(elite_theta)
 ~~~~
 
 Note that in the above 'theta(j)' denotes the $j^\th$ parameter vector $\theta$,
@@ -124,42 +176,41 @@ as opposed to an entry of a vector; and 'sigma2' denotes $\sigma^2$.
 
 ### Implementation details
 
-The function sampleFromN takes in $\mu \in \RR^4$ and $\sigma^2 \in \RR^4$ and
-samples $x_i \sim N(\mu_i, \sigma_i^2)$ for $i = 1,2,3,4$. In python, this can
-be achieved with:
+The function sample_from_gaussian takes in $\mu \in \RR^4$ and $\sigma^2 \in
+\RR^4$ and samples $x_i \sim N(\mu_i, \sigma_i^2)$ for $i = 1,2,3,4$. In python,
+this can be achieved with:
 
-~~~~
+~~~~python
 import numpy as np
 import random
 mu = [0,0,0,0]
-sigma = [1,1,1,1]
-theta = np.random.randn(1,4) * sigma + mu
+sigma2 = [1,1,1,1]
+def sample_from_gaussian(mu, sigma2):
+    return np.random.randn(1,4) * np.sqrt(sigma2) + mu
 ~~~~
 
-where we note that in the above we use $\sigma$, rather than $\sigma^2$.
+By estimate_reward_with_theta, it is meant to estimate the expected total reward
+if we follow policy $\pi(a | x; \theta)$. One simple way to estimate this is to
+run the agent many times following the policy and use the mean total reward as
+the estimate.
 
-By estimateRewardWithTheta, it is meant to estimate the expected total reward if
-we follow policy $\pi(a | x; \theta)$. One simple way to estimate this is to run
-the agent many times following the policy and use the mean total reward as the
-estimate.
-
-Then eliteTheta is simply a list of the best $\theta$, ordered by their
+Then elite_theta is simply a list of the best $\theta$, ordered by their
 estimated reward, where we only keep the top $100p\%$.
 
 The final step in the loop is to fit the new Gaussian distributions. Here we
-treat eliteTheta as a list of samples, and compute the maximum likelihood
+treat elite_theta as a list of samples, and compute the maximum likelihood
 Gaussian distributions, which simply means the most likely Gaussian
 distributions, given the sample data. It turns out that the new $\mu$ is just
 the sample mean of the elite set, and the new $\sigma^2$ is just the sample
 variance of the elite set.
 
-Thus we can implement it as follows. Let eliteTheta be an np array of shape $m
+Thus we can implement it as follows. Let elite_theta be an np array of shape $m
 \times 4$, where $m$ is the number of samples. Then our new $\mu$ and $\sigma^2$
 are given by
 
-~~~~
-mu = np.mean(eliteTheta,0)
-sigma2 = np.var(eliteTheta,0)
+~~~~python
+mu = np.mean(elite_theta,0)
+sigma2 = np.var(elite_theta,0)
 ~~~~
 
 Now we just repeat the process, sampling more $\theta$ from our distribution,
@@ -173,11 +224,26 @@ dependence in the parameter entries, we could use the more general multivariate
 Gaussian distribution. This has the same mean, but the variance $\sigma^2$ is
 replaced by a covariance matrix.
 
-## The policy gradient method
+### A full implementation
+
+That's the basic idea, and you can see the full implementation using OpenAI Gym
+[here](https://github.com/cgnicholls/reinforcement-learning/blob/master/cartpole/crossentropy.py).
+
+It turns out that the cross entropy method as I described it doesn't work very
+well with the stochastic policy I described. This can be fixed by making the
+policy deterministic: in the code, we actually use the policy 'move right' if $x
+\theta^\tr > 0$, and otherwise 'move left'. Equivalently, 'move right' if
+$\sigma(x \theta^\tr) > 0.5$, and otherwise 'move left'. Thus, instead of moving
+right with probability $\sigma(x \theta^\tr)$, we just move right if the
+probability is at least $0.5$.
+
+## The policy gradient method ##
 The cross-entropy method worked well for the cart and pole problem, but it
 wouldn't generalise well to problems with more parameters, and a nonlinear
-policy. In contrast, policy gradients are a class of methods that do generalise
-in this way.
+policy. Indeed, it didn't even work that well with a stochastic policy, and that
+can be a crucial aspect of letting the agent explore the full space of policies.
+In contrast, policy gradients are a class of methods that do generalise in this
+way.
 
 The basic idea is to use gradient ascent to optimise our policy to maximise the
 expected total reward. At each step of the optimisation, we compute
@@ -185,14 +251,14 @@ $\grad_\theta \EE_\tau[R_\tau]$, and then update our parameter vector $\theta$
 by a small amount, called the learning rate, $\alpha > 0$:
 
 $$
-\theta = \theta + \alpha \grad_\theta \EE_\tau[R_\tau].
+\theta \leftarrow \theta + \alpha \grad_\theta \EE_\tau[R_\tau].
 $$
 
 If we gradually decrease the learning rate over time, then this will converge to
 a local optimum. In practice, even though we may not reach the global optimum,
 this general idea is effective at solving these kinds of optimisation problems.
 
-### Computing the gradient
+### Computing the gradient ###
 The question now is how to compute $\grad_\theta \EE_\tau[R_\tau]$.
 
 First note that $\EE_\tau[R_\tau]$ is really an integral, and under nice
@@ -259,12 +325,22 @@ where we have used the Markov property, so that we only have to condition on
 the previous state.
 
 The only terms that depend on $\theta$ are $P(a_t | x_t; \theta) = \pi(a_t |
-x_t; \theta)$, and so on taking logs and differentiating with respect to
+x_t; \theta)$, and so on taking log and differentiating with respect to
 $\theta$, we obtain the unbiased estimator:
 
 $$
 R_\tau \grad_\theta \log P(\tau | \pi; \theta) = (\sum_{t=1}^T r_t) \grad_\theta
 \sum_{t=0}^{T-1} \log \pi(a_t | x_t; \theta).
 $$
+
+### Making this practical ###
+From the previous discussion, given any trajectory $\tau$, sampled according to
+policy $\pi(a | x; \theta)$, we can now compute $\hat{g}(\tau) \coloneqq R_\tau
+\grad_\theta \log P(\tau | \pi; \theta)$. If we sample enough trajectories
+$\tau$ and compute the mean of $\hat{g}(\tau)$, we will get a good estimate of
+$\grad_\theta \EE_\tau[R_\tau | \pi; \theta]$. 
+
+Let's try and implement this idea, and see if this vanilla version works on its
+own (spoiler: unfortunately, it doesn't...)
 
 
