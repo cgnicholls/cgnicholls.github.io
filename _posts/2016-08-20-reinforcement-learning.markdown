@@ -285,13 +285,18 @@ replaced by a covariance matrix.
 That's the basic idea, and you can see the full implementation using OpenAI Gym
 [here](https://github.com/cgnicholls/reinforcement-learning/blob/master/cartpole/crossentropy.py).
 
-It turns out that the cross entropy method as I described it doesn't work very
-well with the stochastic policy I described. This can be fixed by making the
-policy deterministic: in the code, we actually use the policy 'move right' if $x
-\theta^\tr > 0$, and otherwise 'move left'. Equivalently, 'move right' if
-$\sigma(x \theta^\tr) > 0.5$, and otherwise 'move left'. Thus, instead of moving
-right with probability $\sigma(x \theta^\tr)$, we just move right if the
-probability is at least $0.5$.
+As with a lot of machine learning methods, there are several hyperparameters
+that can be tuned to give better performance. It turns out that one of the
+import ones for this method is the initial variance for the Gaussian
+distributions. A larger variance allows for the sampled $\theta \in \RR^4$ to
+have larger magnitude, which means $x \theta^\tr$ has larger magnitude. This
+means that $\sigma(x \theta^\tr)$ is closer to either 0 or 1, and so the net
+effect is for the policy to have lower variance, and be closer to a
+deterministic policy.
+
+This has a large effect on performance, to the extent that if you set the
+initial variance less than 1, then it won't learn very well, while if you set it
+exceeding ten, then it learns very well.
 
 ## The policy gradient method ##
 The cross-entropy method worked well for the cart and pole problem, but it
