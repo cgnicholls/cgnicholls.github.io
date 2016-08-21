@@ -36,8 +36,10 @@ receive an observation $x_t$ from the environment. We then choose an action
 $a_t$, and the environment transitions stochastically into a new state. We
 receive a reward $r_{t+1}$, and we see an observation $x_{t+1}$ of the
 environment in its new state. In general our observation need not be the same as
-the environment's state. This process repeats until we see the terminal state:
-the pole falls off the cart.
+the environment's state, but in the cart and pole problem the observation and
+environment state are the same, so we use the words observation and state
+interchangeably here. This process repeats until we see the terminal state: the
+pole falls off the cart.
 
 We call such a sequence: $(x_0, a_0, r_1, x_1, \ldots, x_{T-1}, a_{T-1}, r_T,
 x_T)$ a trajectory.
