@@ -187,6 +187,17 @@ pre {
 }
 
 
+/**
+ * Table style -- I added this for tables
+ */
+.mbtablestyle {
+        border-collapse: collapse;
+
+   > table, td, th {
+        border: 1px solid black;
+        text-align: center
+        }
+}
 
 /**
  * Icons

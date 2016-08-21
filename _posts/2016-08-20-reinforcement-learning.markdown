@@ -5,14 +5,14 @@ date:   2016-08-20 11:00:00 +0100
 categories: reinforcement-learning
 ---
 
-\\(
+$
 \def\RR{\mathbb{R}}
 \def\tr{\mathrm{tr}}
 \def\th{\mathrm{th}}
 \def\EE{\mathbb{E}}
 \def\coloneqq{\colon=}
 \def\grad{\nabla}
-\\)
+$
 
 # Introduction to reinforcement learning #
 
@@ -26,28 +26,34 @@ problem: the cart and pole.
 ## The cart and pole problem ##
 
 In this problem a cart attempts to vertically balance a pole by moving left and
-right along a one-dimensional space. At each time step, the cart receives its
-position and velocity, and the angle and angular velocity of the pole. We let
-$x$ denote the observation, and we use this as the state. Let $a_L$ denote the
-action 'accelerate left' and $a_R$ denote the action 'accelerate right'.
+right along a one-dimensional space. The cart is allowed to observe its position
+and velocity, as well as the angle and angular velocity of the pole. At each
+time step the cart makes a decision to either accelerate left or accelerate
+right.
 
-We model this problem as a Markov decision process, since the behaviour of the
-system only depends on the current state, i.e. our state satisfies the Markov
-property: $P(x_{t+1} | x_t) = P(x_{t+1} | x_1, x_2, \ldots, x_t)$. In words, the
-probability of transitioning to state $x_{t+1}$ given that you were in state
-$x_t$ is independent of all previous states. This really means that your state
-captures all you need to know about the system. In contrast, if our state did
-not include the cart's velocity, then it wouldn't be Markov, because $x_t$
-doesn't give the velocity, while $x_t$ and $x_{t-1}$ together give you a crude
-estimate of the velocity.
+We model this as a Markov decision process, which means that at time step $t$ we
+receive an observation $x_t$ from the environment. We then choose an action
+$a_t$, and the environment transitions stochastically into a new state. We
+receive a reward $r_{t+1}$, and we see an observation $x_{t+1}$ of the
+environment in its new state. In general our observation need not be the same as
+the environment's state. This process repeats until we see the terminal state:
+the pole falls off the cart.
 
-At time step $t$ we receive an observation $x_t$ from the environment. We then
-choose an action $a_t$, and the environment transitions stochastically into a
-new state. We receive a reward $r_{t+1}$, and we see the next state $x_{t+1}$.
-This process repeats until we see the terminal state: the pole falls off the
-cart. In the cart and pole problem, the reward is $r_t = +1$ for every time step
-$t$; thus the incentive is to keep the pole balanced for as long as possible. In
-general, the reward may depend on $x_t$ and $a_t$.
+In the cart and pole problem, the observation at time $t$ is a vector $x_t \in
+\RR^4$. The reward is $r_t = +1$ for every time step $t$; thus the incentive is
+to keep the pole balanced for as long as possible. In general, the reward may
+depend on $x_t$ and $a_t$. Let $a_L$ denote the action 'accelerate left' and
+$a_R$ denote the action 'accelerate right'.
+
+The reason we can model this as a Markov decision process is because the state
+is Markov. This means that the system only depends on the current state, i.e.
+$P(x_{t+1} \| x_t) = P(x_{t+1} \| x_1, x_2, \ldots, x_t)$. In words, the
+probability of transitioning to $x_{t+1}$ given that you were in state $x_t$ is
+independent of all previous states. This really means that the state captures
+all you need to know about the system. In contrast, if our state did not include
+the cart's velocity, then it wouldn't be Markov, because $x_t$ wouldn't give the
+velocity, while $x_t$ and $x_{t-1}$ would together give you a crude estimate of
+the velocity.
 
 ### Playing randomly ###
 
@@ -96,43 +102,93 @@ random_agent(10)
 ### Playing with a policy
 
 Instead of playing randomly, we want to choose our actions based on our current
-state. We achieve this using a probability distribution $P(a | x)$ over the
-possible actions, given the state, from which we sample our action at every
-step. If the state space were discrete, then the description $P(a | x)$ would
-suffice, but to work with a continuous state space, it is convenient to use a
-parametrised distribution $P(a | x; \theta)$, where $\theta \in \RR^d$ for some
-$d$. Following conventional notation, we now write $\pi(a | x; \theta)$ instead
-of $P(a | x; \theta)$, and we henceforth call this the policy.
+observation. We still don't necessarily want to choose deterministically though,
+since that might stop us exploring different ways of playing. We thus choose our
+actions using a conditional probability distribution $P(a \| x)$ over the
+possible actions, given the observation.
 
-Thus $\pi(a | x; \theta)$ is just a probability distribution that depends on $x$
-and $\theta$ that we will use to choose our actions: at time step $t$, if we are
-in state $x_t$, then we sample $a_t$ from the distribution $\pi(a_t | x_t;
-\theta)$.
+So at time step $t$ we get an observation $x_t$, and we choose an action $a_t$
+according to the conditional probability distribution $P(a_t \| x_t)$. 
 
-In the case of the cart and pole problem, the state already consists of
-excellent features for predicting the action, and so we just use linear
-combinations of the features, and then normalise to get a probability
-distribution. More formally, we let $\theta \in \RR^4$, and use the policy
+In particular, this must satisfy $P(a_L \| x) + P(a_R \| x) = 1$ for all
+observations $x$, i.e. the agent must choose exactly one of $a_L$ or $a_R$.
+
+#### An example ####
+Let's consider an example in the simplifying situation of a finite observation
+space. Suppose for simplicity that the observation is either 'pole falling to
+the left' or 'pole falling to the right'. Then one possible distribution is
+shown in the table below:
+
+<div class="table-wrapper" markdown="block" align="center">
+
+|observation\action| move left | move right |
+| falling left | 0.9 | 0.1 |
+| falling right | 0.15 | 0.85 |
+{:.mbtablestyle}
+
+</div>
+
+In words: if the pole is falling to the left, then you move left with
+probability 0.9, and right with probability 0.1; if the pole is falling to the
+right, then you move left with probability 0.15, and right with probability
+0.85.
+
+This makes some sense, because if the pole is falling one way, then you probably
+want to move in the same direction. To follow this policy at time step $t$, we
+receive our observation $x_t$, e.g. 'pole falling left', and then sample our
+action from this distribution.
+
+However, in the table above, we specify $P( a \| x )$ by giving one value for
+each pair $(a,x)$ of actions and observations. This is hopeless if the number of
+possible actions and observations is large, and impossible if it is infinite: we
+can't write down infinitely many numbers.
+
+#### What to do in an infinite observation space ####
+
+For our problem, each of the position, velocity, angle and angular velocity take
+on values in $\RR$, and thus we need a different way of writing down the
+conditional probability distribution $P(a \| x)$.
+
+One approach is to let $P(a \| x)$ depend continuously on $x$. In our situation,
+we would need $P(a_L \| x)$ and $P(a_R \| x)$ to be continuous functions of $x$
+satisfying $0 \le P(a_L \| x) \le 1$ and $0 \le P(a_R \| x) \le 1$ for all $x$ and
+also $P(a_L \| x) + P(a_R \| x) = 1$.
+
+But now we have the problem that it is hard to search over all continuous
+functions. The next idea is to restrict the space of possible conditional
+probability distributions to some smaller subspace. We can do this by letting
+our functions depend on a parameter $\theta \in \RR^d$ for some $d$, and then
+learning a good value for $\theta$.
+
+We write $P(a \| x; \theta)$ to indicate that the function $P(a \| x; \theta)$
+depends on a parameter $\theta$. Following conventional notation, we now write
+$\pi(a \| x; \theta)$ instead of $P(a \| x; \theta)$, and we henceforth call this
+the policy.
+
+Thus $\pi(a \| x; \theta)$ is just a conditional probability distribution that
+depends on $x$ and $\theta$ that we will use to choose our actions: at time step
+$t$, if we see observation $x_t$, then we sample $a_t$ from the distribution
+$\pi(a_t \| x_t; \theta)$.
+
+In the case of the cart and pole problem, the observation already consists of
+excellent features for predicting the action, and so we can just consider
+linear combinations of the features, and then normalise to get a conditional
+probability distribution. More formally, we let $\theta \in \RR^4$, and use the
+policy
 
 $$
-\pi(a | x; \theta) =
-\begin{cases}
-\sigma(x \theta^\tr), & a = a_R \\
-1 - \sigma(x \theta^\tr), & a = a_L,
-\end{cases}
+\begin{align*}
+\pi(a_R | x; \theta) = \sigma(x \theta^\tr) \\
+\pi(a_L | x; \theta) = 1 - \sigma(x \theta^\tr),
+\end{align*}
 $$
 
-where $\sigma$ is the sigmoid function; $\sigma(u) = 1 / (1 + e^{-u})$. The
-sigmoid function has range $(0, 1)$, and so this policy is a well-defined
-probability distribution over actions given states.
+where $\sigma$ is the sigmoid function: $\sigma(u) = 1 / (1 + e^{-u})$. The
+sigmoid function has range $(0, 1)$, which ensures that $\pi(a \| x; \theta)$ is
+a conditional probability distribution.
 
 Essentially all we are doing here is using the dot product $x \theta^\tr$ as a
 predictor, and then normalising everything to get a probability distribution.
-
-At time step $t$, we receive $x_t$, and compute $\pi(a_t | x_t; \theta)$. Then
-we sample $a_t \sim \pi(a_t | x_t; \theta)$, and the environment sends us back
-$r_{t+1}$ and $x_{t+1}$. Think of $r_{t+1}$ as the reward for having made action
-$a_t$ in state $x_t$.
 
 In more complicated situations, we would want a policy that does more than just
 take a linear combination of the features the environment gives us.
@@ -144,7 +200,7 @@ sample our Markov decision process, to get a trajectory $\tau = (x_0, a_0, r_1,
 x_1, a_1, r_2, \ldots, x_{T-1}, a_{T-1}, r_T, x_T)$. We let $R_\tau \coloneqq
 r_1 + r_2 + \cdots + r_T$ denote the total reward of the trajectory.
 
-Then the expected total reward for a given policy $\pi$ is $\EE_\tau[R | \pi]$,
+Then the expected total reward for a given policy $\pi$ is $\EE_\tau[R \| \pi]$,
 and our aim is to find $\pi$ that maximises this.
 
 We describe two approaches here: cross-entropy, and policy gradient.
@@ -190,7 +246,7 @@ def sample_from_gaussian(mu, sigma2):
 ~~~~
 
 By estimate_reward_with_theta, it is meant to estimate the expected total reward
-if we follow policy $\pi(a | x; \theta)$. One simple way to estimate this is to
+if we follow policy $\pi(a \| x; \theta)$. One simple way to estimate this is to
 run the agent many times following the policy and use the mean total reward as
 the estimate.
 
@@ -304,15 +360,15 @@ $$
 P(\tau | \pi; \theta)].
 $$
 
-This is crucial, because now we can use $R_\tau \grad_\theta \log P(\tau | \pi;
-\theta)$ as an unbiased estimator of $\grad_\theta \EE_\tau[R_\tau | \pi;
+This is crucial, because now we can use $R_\tau \grad_\theta \log P(\tau \| \pi;
+\theta)$ as an unbiased estimator of $\grad_\theta \EE_\tau[R_\tau \| \pi;
 \theta]$.
 
 We now have to work out a way to write this just in terms of $\grad_\theta \pi(a
-| x; \theta)$, which is something that we can compute.
+\| x; \theta)$, which is something that we can compute.
 
 So let $\tau = (x_0, a_0, r_1, x_1, \ldots, x_{T-1}, a_{T-1}, r_T, x_T)$ be a
-trajectory for which we want to compute $P(\tau | \pi; \theta)$. We can rewrite
+trajectory for which we want to compute $P(\tau \| \pi; \theta)$. We can rewrite
 this as a product
 
 $$
@@ -322,9 +378,9 @@ P(a_{T-1} | x_{T-1}; \theta) P(r_T | a_{T-1}, x_{T-1}) P(x_T | a_{T-1}, x_{T-1})
 $$
 
 where we have used the Markov property, so that we only have to condition on
-the previous state.
+the previous observation.
 
-The only terms that depend on $\theta$ are $P(a_t | x_t; \theta) = \pi(a_t |
+The only terms that depend on $\theta$ are $P(a_t \| x_t; \theta) = \pi(a_t \|
 x_t; \theta)$, and so on taking log and differentiating with respect to
 $\theta$, we obtain the unbiased estimator:
 
@@ -335,12 +391,12 @@ $$
 
 ### Making this practical ###
 From the previous discussion, given any trajectory $\tau$, sampled according to
-policy $\pi(a | x; \theta)$, we can now compute $\hat{g}(\tau) \coloneqq R_\tau
-\grad_\theta \log P(\tau | \pi; \theta)$. If we sample enough trajectories
+policy $\pi(a \| x; \theta)$, we can now compute $\hat{g}(\tau) \coloneqq R_\tau
+\grad_\theta \log P(\tau \| \pi; \theta)$. If we sample enough trajectories
 $\tau$ and compute the mean of $\hat{g}(\tau)$, we will get a good estimate of
-$\grad_\theta \EE_\tau[R_\tau | \pi; \theta]$. 
+$\grad_\theta \EE_\tau[R_\tau \| \pi; \theta]$. 
 
-Let's try and implement this idea, and see if this vanilla version works on its
-own (spoiler: unfortunately, it doesn't...)
+Next time we will implement this idea, and see if this vanilla version works on its
+own.
 
 
