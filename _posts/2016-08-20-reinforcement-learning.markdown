@@ -39,6 +39,9 @@ environment in its new state. In general our observation need not be the same as
 the environment's state. This process repeats until we see the terminal state:
 the pole falls off the cart.
 
+We call such a sequence: $(x_0, a_0, r_1, x_1, \ldots, x_{T-1}, a_{T-1}, r_T,
+x_T)$ a trajectory.
+
 In the cart and pole problem, the observation at time $t$ is a vector $x_t \in
 \RR^4$. The reward is $r_t = +1$ for every time step $t$; thus the incentive is
 to keep the pole balanced for as long as possible. In general, the reward may
@@ -177,10 +180,12 @@ probability distribution. More formally, we let $\theta \in \RR^4$, and use the
 policy
 
 $$
-\begin{align*}
-\pi(a_R | x; \theta) = \sigma(x \theta^\tr) \\
-\pi(a_L | x; \theta) = 1 - \sigma(x \theta^\tr),
-\end{align*}
+\begin{equation}
+\begin{aligned}
+\pi(a_R | x; \theta) &= \sigma(x \theta^\tr) \\
+\pi(a_L | x; \theta) &= 1 - \sigma(x \theta^\tr), 
+\end{aligned}\label{eqn-policy}
+\end{equation}
 $$
 
 where $\sigma$ is the sigmoid function: $\sigma(u) = 1 / (1 + e^{-u})$. The
@@ -194,14 +199,19 @@ In more complicated situations, we would want a policy that does more than just
 take a linear combination of the features the environment gives us.
 
 # Learning the policy
-Our aim now is to learn a good parameter vector $\theta$; that is, find $\theta$
-that maximises our expected total reward. For any fixed policy $\pi$, we can
-sample our Markov decision process, to get a trajectory $\tau = (x_0, a_0, r_1,
-x_1, a_1, r_2, \ldots, x_{T-1}, a_{T-1}, r_T, x_T)$. We let $R_\tau \coloneqq
-r_1 + r_2 + \cdots + r_T$ denote the total reward of the trajectory.
+Our aim now is to learn a good policy $\pi$. Forgetting about $\theta$ for the
+moment, this is measured by the expected total reward if we follow policy $\pi$.
+More formally, for any fixed policy $\pi$, we can sample our Markov decision
+process to get a trajectory $\tau = (x_0, a_0, r_1, x_1, a_1, r_2, \ldots,
+x_{T-1}, a_{T-1}, r_T, x_T)$, and we let $R_\tau \coloneqq r_1 + r_2 + \cdots +
+r_T$ denote the total reward of the trajectory.
 
-Then the expected total reward for a given policy $\pi$ is $\EE_\tau[R \| \pi]$,
-and our aim is to find $\pi$ that maximises this.
+Then the expected total reward for a given policy $\pi$ is $\EE_\tau[R_\tau \|
+\pi]$, and our aim is to find $\pi$ that maximises this. Since we are
+restricting the space of policies to those of the form \eqref{eqn-policy}, we
+look for $\theta$ such that $\pi(a | x; \theta)$ gives the highest expected
+total reward. It may be that the policy we find isn't optimal among all
+policies, but hopefully it will be good enough.
 
 We describe two approaches here: cross-entropy, and policy gradient.
 
@@ -260,9 +270,9 @@ distributions, given the sample data. It turns out that the new $\mu$ is just
 the sample mean of the elite set, and the new $\sigma^2$ is just the sample
 variance of the elite set.
 
-Thus we can implement it as follows. Let elite_theta be an np array of shape $m
-\times 4$, where $m$ is the number of samples. Then our new $\mu$ and $\sigma^2$
-are given by
+Thus we can implement it as follows. Let elite_theta be a numpy array of shape
+$m \times 4$, where $m$ is the number of samples. Then our new $\mu$ and
+$\sigma^2$ are given by
 
 ~~~~python
 mu = np.mean(elite_theta,0)
@@ -274,8 +284,8 @@ keeping the ones that score best, and fitting a new distribution to those.
 
 This turns out to work remarkably well on the cart and pole problem, and doesn't
 require much insight to get it to work. Formally, we are using a diagonal
-multivariate Gaussian distribution, which is really assuming that the entries
-$\theta_i$ of our parameter vector are pairwise independent. If there is
+multivariate Gaussian distribution, which just means assuming that the entries
+$\theta_i$ of our parameter vector are pairwise independent. If there were
 dependence in the parameter entries, we could use the more general multivariate
 Gaussian distribution. This has the same mean, but the variance $\sigma^2$ is
 replaced by a covariance matrix.
@@ -285,14 +295,13 @@ replaced by a covariance matrix.
 That's the basic idea, and you can see the full implementation using OpenAI Gym
 [here](https://github.com/cgnicholls/reinforcement-learning/blob/master/cartpole/crossentropy.py).
 
-As with a lot of machine learning methods, there are several hyperparameters
-that can be tuned to give better performance. It turns out that one of the
-import ones for this method is the initial variance for the Gaussian
-distributions. A larger variance allows for the sampled $\theta \in \RR^4$ to
-have larger magnitude, which means $x \theta^\tr$ has larger magnitude. This
-means that $\sigma(x \theta^\tr)$ is closer to either 0 or 1, and so the net
-effect is for the policy to have lower variance, and be closer to a
-deterministic policy.
+As with a lot of machine learning methods, there are several hyperparameters to
+be tuned to give better performance. It turns out that one of the important ones
+for this method is the initial variance for the Gaussian distributions. A larger
+variance allows for the sampled $\theta \in \RR^4$ to have larger magnitude,
+which means $x \theta^\tr$ has larger magnitude. This means that $\sigma(x
+\theta^\tr)$ is closer to either 0 or 1, and so the net effect is for the policy
+to have lower variance, and be closer to a deterministic policy.
 
 This has a large effect on performance, to the extent that if you set the
 initial variance less than 1, then it won't learn very well, while if you set it
@@ -301,15 +310,14 @@ exceeding ten, then it learns very well.
 ## The policy gradient method ##
 The cross-entropy method worked well for the cart and pole problem, but it
 wouldn't generalise well to problems with more parameters, and a nonlinear
-policy. Indeed, it didn't even work that well with a stochastic policy, and that
-can be a crucial aspect of letting the agent explore the full space of policies.
-In contrast, policy gradients are a class of methods that do generalise in this
-way.
+policy. In contrast, policy gradients are a class of methods that do generalise
+in this way.
 
-The basic idea is to use gradient ascent to optimise our policy to maximise the
-expected total reward. At each step of the optimisation, we compute
-$\grad_\theta \EE_\tau[R_\tau]$, and then update our parameter vector $\theta$
-by a small amount, called the learning rate, $\alpha > 0$:
+We still use a parametrised policy $\pi(a | x; \theta)$. The basic idea is to
+use gradient ascent to optimise $\theta$ to maximise the expected total reward.
+At each step of the optimisation, we compute $\grad_\theta \EE_\tau[R_\tau]$,
+and then update our parameter vector $\theta$ by a small amount, called the
+learning rate, $\alpha > 0$:
 
 $$
 \theta \leftarrow \theta + \alpha \grad_\theta \EE_\tau[R_\tau].
@@ -328,10 +336,9 @@ the policy $\pi$, then we can sample the Markov decision process following
 policy $\pi$ to get trajectories $\tau = (x_0, a_0, r_1, x_1, \ldots, x_{T-1},
 a_{T-1}, r_T, x_T)$.
 
-Thus $\pi$ determines a probability distribution over trajectories $\tau$. Each
-such trajectory has a total reward, $R_\tau$, which is also a random variable.
-It thus makes sense to consider $\EE_\tau[R_\tau]$, which is formally given by
-the following integral over all possible trajectories $\tau$:
+Thus $\pi$ determines a probability distribution over trajectories $\tau$. Then
+the expected total reward for following the policy $\pi(a | x; \theta)$ is
+formally given by the following integral over all possible trajectories $\tau$:
 
 $$
 \EE_\tau[R_\tau | \pi; \theta] = \int_\tau P(\tau | \pi; \theta) R_\tau d\tau,
@@ -387,21 +394,22 @@ the previous observation.
 
 The only terms that depend on $\theta$ are $P(a_t \| x_t; \theta) = \pi(a_t \|
 x_t; \theta)$, and so on taking log and differentiating with respect to
-$\theta$, we obtain the unbiased estimator:
+$\theta$, we obtain an unbiased estimator:
 
 $$
-R_\tau \grad_\theta \log P(\tau | \pi; \theta) = (\sum_{t=1}^T r_t) \grad_\theta
-\sum_{t=0}^{T-1} \log \pi(a_t | x_t; \theta).
+\hat{g}(\tau) \coloneqq R_\tau \grad_\theta \log P(\tau | \pi; \theta) =
+(\sum_{t=1}^T r_t) \grad_\theta \sum_{t=0}^{T-1} \log \pi(a_t | x_t; \theta).
 $$
+
+That is, $\EE_\tau[\hat{g}(\tau) | \pi; \theta] = \grad_\theta \EE_\tau[R_\tau |
+\pi; \theta]$.
 
 ### Making this practical ###
 From the previous discussion, given any trajectory $\tau$, sampled according to
-policy $\pi(a \| x; \theta)$, we can now compute $\hat{g}(\tau) \coloneqq R_\tau
-\grad_\theta \log P(\tau \| \pi; \theta)$. If we sample enough trajectories
-$\tau$ and compute the mean of $\hat{g}(\tau)$, we will get a good estimate of
-$\grad_\theta \EE_\tau[R_\tau \| \pi; \theta]$. 
+policy $\pi(a \| x; \theta)$, we can now compute $\hat{g}(\tau)$. If we sample
+enough trajectories $\tau$ and compute the mean of $\hat{g}(\tau)$, we will get
+a good estimate of $\grad_\theta \EE_\tau[R_\tau \| \pi; \theta]$, and we can
+use this in gradient ascent.
 
 Next time we will implement this idea, and see if this vanilla version works on its
 own.
-
-
