@@ -400,7 +400,8 @@ $\theta$, we obtain an unbiased estimator:
 
 $$
 \hat{g}(\tau) \coloneqq R_\tau \grad_\theta \log P(\tau | \pi; \theta) =
-(\sum_{t=1}^T r_t) \grad_\theta \sum_{t=0}^{T-1} \log \pi(a_t | x_t; \theta).
+(\sum_{t'=1}^T r_{t'}) \grad_\theta \sum_{t=0}^{T-1} \log \pi(a_t | x_t;
+\theta).
 $$
 
 That is, $\EE_\tau[\hat{g}(\tau) | \pi; \theta] = \grad_\theta \EE_\tau[R_\tau |
