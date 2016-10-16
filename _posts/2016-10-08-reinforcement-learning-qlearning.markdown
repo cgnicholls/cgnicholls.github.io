@@ -109,4 +109,4 @@ the first value and the $\Qhat$ value of moving right is the second value. This
 means we can use just one network, rather than a separate one for each action.
 
 You can see the code for the cross entropy method applied to $Q$-learning
-[here](https://gym.openai.com/).
+[here](https://github.com/cgnicholls/reinforcement-learning/blob/master/cartpole/cartpole-qlearning-crossentropy.py).
