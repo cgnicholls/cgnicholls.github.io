@@ -91,7 +91,7 @@ and Pole problem whose associated policy performs well can be solved using the
 cross-entropy method, rather than gradient descent.
 
 Note that this doesn't actually show that the Bellman equation is satisfied for
-this $\Qhat$; rather, the policy $\pi(s) = \argmax_a \Qhat(s, a; \theta)$
+this $\Qhat$; rather, the policy $\pi(s) = \mathrm{argmax}_a \Qhat(s, a; \theta)$
 performs very well on the Cart and Pole problem.
 
 We have to choose the architecture of the neural network. The simplest idea is
