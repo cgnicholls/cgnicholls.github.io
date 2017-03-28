@@ -86,17 +86,16 @@ averaged over many transitions.
 # Check that a linear $Q$-function works for our problem
 It's usually a good idea to try out the simplest to implement, and quickest to
 run, methods first, and only move on to more complicated methods when these have
-been shown insufficient. It turns out that computing a good $Q$-function in the
-Cart and Pole problem can be solved using the cross-entropy method, rather than
-gradient descent.
+been shown insufficient. It turns out that computing a $Q$-function for the Cart
+and Pole problem whose associated policy performs well can be solved using the
+cross-entropy method, rather than gradient descent.
 
-Since we are interested in using deep q-learning, we do want to use the more
-complicated method as well, and check that it works in the Cart and Pole
-problem; however, we can exploit the cross-entropy method to check that our
-proposed form of the $Q$-function actually works.
+Note that this doesn't actually show that the Bellman equation is satisfied for
+this $\Qhat$; rather, the policy $\pi(s) = \argmax_a \Qhat(s, a; \theta)$
+performs very well on the Cart and Pole problem.
 
 We have to choose the architecture of the neural network. The simplest idea is
-simply to use a linear network:
+to use a linear network:
 
 $$
 \Qhat(s; \theta) = s \theta,
@@ -108,5 +107,16 @@ $\Qhat(s; \theta)$ is a $1 \times 2$-vector; the $\Qhat$ value of moving left is
 the first value and the $\Qhat$ value of moving right is the second value. This
 means we can use just one network, rather than a separate one for each action.
 
-You can see the code for the cross entropy method applied to $Q$-learning
+Using the cross entropy method, we can find $\theta$ such that the associated
+policy performs very well. You can see the code for the cross entropy method
+applied to $Q$-learning
 [here](https://github.com/cgnicholls/reinforcement-learning/blob/master/cartpole/cartpole-qlearning-crossentropy.py).
+
+Since we are interested in using deep q-learning, we do want to use the more
+complicated method as well, and check that it works in the Cart and Pole
+problem.
+
+If you include a bias term in $\Qhat$ then you get much better convergence. In
+tensorflow, with a linear network (plus bias), it's possible to get quite close
+to a solution to the Bellman equation. However, the average reward doesn't seem
+to be so stable.

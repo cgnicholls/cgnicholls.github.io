@@ -1,0 +1,204 @@
+---
+layout: post
+title:  "Reinforcement learning with the A3C algorithm"
+date:   2017-03-27 17:00:00 +0100
+categories: reinforcement-learning
+---
+
+$
+\def\RR{\mathbb{R}}
+\def\tr{\mathrm{tr}}
+\def\th{\mathrm{th}}
+\def\EE{\mathbb{E}}
+\def\coloneqq{\colon=}
+\def\grad{\nabla}
+$
+
+# Introduction #
+I've been playing around with deep reinforcement learning for a little while,
+but have always found it hard to get the state of the art algorithms working.
+This is in part because getting any algorithm to work requires some good choices
+for hyperparameters, and I have to do all of these experiments on my Macbook.
+
+In this tutorial I will go over how to implement the asynchronous advantage
+actor-critic algorithm (or A3C for short). The original paper can be found
+[here](https://arxiv.org/abs/1602.01783) but I hope that I can contribute by
+making everything a little easier to understand. The paper describes 4
+algorithms: one step Q-learning, $n$-step Q-learning, one step SARSA and A3C.
+I also implemented one step Q-learning and got this to work on Space Invaders,
+but the reason I focus on A3C is because it is the best performing algorithm
+from the paper.
+
+The exciting thing about the paper, at least for me, is that you don't need to
+rely on a GPU for speed. In fact, the whole idea is to use multiple cores of a
+CPU, run in parallel, which gives a speedup proportional to the number of cores
+used. Since I normally run things on my laptop, which only has one CPU (albeit
+with two cores), I don't actually bother implementing things properly in
+parallel, and instead use threads. Consequently, my implementation won't
+actually give a speedup in this way, but we'll see that it still manages to
+work on a laptop, just a little more slowly.
+
+I'll use tensorflow to make things a little easier, as we'll need to work with
+convolutional neural networks, but in principle everything could be implemented
+using just numpy if you were willing to write the backprop code yourself.
+
+My aim is to make the algorithm easy to understand, and also make it so that
+there are as few choices of hyperparameters and as little deep learning magic as
+possible.
+
+# The A3C algorithm #
+As with a lot of recent progress in deep reinforcement learning, the innovations
+in the paper weren't really dramatically new algorithmis, but how to force
+relatively well known algorithms to work well with a deep neural network. The
+A3C algorithm can be essentially described as using policy gradients with a
+function approximator, where the function approximator is a deep neural network
+and the authors use a clever method to try and ensure the agent explores the
+state space well.
+
+In the paper there are actually two versions of the A3C algorithm: one just uses
+a feedforward convolutional neural network, while the other includes a recurrent
+layer. I'll focus on the first one, in order to simplify everything as much as
+possible. I also only focus on the discrete action case here. Perhaps I will
+write a follow up to this including the recurrent layer, as well as the
+extension to continuous action spaces.
+
+# Brief reminder of reinforcement learning #
+I went over the policy gradient method in my first post on reinforcement
+learning, so it might be worth reading that first if you aren't familiar with
+policy gradients. I will briefly summarise what we need here though.
+
+First we need to discuss actions and states. I will give some examples using
+ATARI games and then define them formally.
+
+For example, in Space Invaders, the possible $a$ might be: 0 for moving left, 1
+for moving right and 2 for shoot. And if we are playing ATARI games from pixel
+values, then the input $x$ just looks like a screenshot of the game. This can be
+represented as a vector by letting the red, green and blue values of each pixel
+(each between 0 and 1, say) correspond to an entry in the vector. If we just had
+a two pixel game (which I'm sure would be very exciting) then we would have a
+6-dimensional vector. For example,
+
+$$(1.0, 0.0, 0.0, 1.0, 1.0, 1.0) $$
+
+would represent the first pixel being red (its red value is 1 and the green and
+blue are both zero) and the second pixel being white (each of red, green and
+blue are 1, so the pixel is white).
+
+Now, an ATARI game screen is $210 \times 160$ pixels, so we would have $210
+\times 160 \times 3 = 100,800$ dimensions in the vector representing one screen.
+In fact, one can see that a single game screen gives insufficient information to
+the agent, since it doesn't show which direction objects are moving in. 
+
+In the following, we assume that the action space is some finite set of actions,
+and we can thus label them $1, 2, \ldots, n$. We also assume that $x$ is an
+$n$-dimensional vector, or more generally, an array, that represents the current
+state. In fact, in the ATARI setup we don't use 1-dimensional arrays (i.e.
+vectors), but instead use 3d arrays. The first and second dimensions are just
+the width and height of the input image, and the third dimension is time. You
+can think of these as just being a sequence of input images.
+
+# Overview of policy gradients #
+
+The idea of a policy is to parametrise the conditional probability of performing
+a given action $a$ given some state $x$. That is, given a state $x$, we want to
+compute, for each possible action $a$, the probability $P(a | x; \theta)$ of
+performing action $a$ given that we are in state $x$. We write $\theta$ inside
+the probability to denote that the probability is determined by the parameter
+$\theta$. In the following $\theta$ will be the weights of our deep neural
+network, so will actually be a million numbers or so.
+
+I think there is sometimes confusion with what $P(a | x; \theta)$ means. For us,
+it means that while the agent is playing the game, or training, whenever we see
+state $x$ we will choose the action by first computing $P(a | x; \theta)$ for
+each action $a$ and then sampling the action from this probability distribution.
+As it happens, if you really have a Markov Decision Process (i.e. the future is
+independent of the past, given the current state), then if an optimal policy
+exists, there is a deterministic optimal policy. However, using a stochastic
+policy (i.e. choosing actions with some randomness) is helpful. For one, it
+allows the agent to explore the state space without always taking the same
+trajectory, which is important for the exploration-exploitation tradeoff. In
+Space Invaders, for example, it turns out that if you choose to shoot at each
+timestep then you get a reward of something like 180 every time. If you weren't
+forced to explore other actions, you may well think this was good enough and
+exploit this (over, say, always moving left, which would give you zero reward).
+
+To fit with standard notation, we define $\pi(a | x; \theta) = P(a | x;
+\theta)$. We are now looking to find a good set of parameters $\theta$, such
+that, if we follow the policy $\pi(a | x; \theta)$, then we have a high expected
+reward.
+
+Denote by $\tau$ a trajectory of the MDP. That is, $\tau$ is a sequence $x_0,
+a_0, r_1, x_1, a_1, r_2, \ldots, x_{T-1}, a_{T-1}, r_T$, where $r_{t+1}$ is the
+reward for having been in state $x_t$, taken action $a_t$, and being
+transitioned to state $x_{t+1}$. In the episodic setting, we have terminal
+states and we assume that the sequence terminates after some finite time $T$
+(e.g.  when the agent dies or completes the game). We let $R_\tau = r_1 + \cdots
++ r_T$, or sometimes we use a discount factor $0 < \gamma \le 1$ and let $R_\tau
+= r_1 + \gamma r_2 + \cdots \gamma^{T-1} r_T$.
+
+The policy gradient method aims to maximise $\EE_\tau[R_\tau | \pi; \theta]$. In
+words, this is the expected reward of a trajectory when the agent follows policy
+$\pi$. The method tries to maximise this by gradient ascent with respect to the
+parameters $\theta$. Thus we compute $\grad_\theta \EE_\tau[R_\tau | \pi;
+\theta]$ and then iteratively improve $\theta$ by $\theta \mapsto \theta +
+\alpha \cdot \grad_\theta \EE_\tau [R_\tau | \pi; \theta]$.
+
+We saw last time that we can compute $\grad_\theta \EE_\tau[R_\tau | \pi;
+\theta]$ as the expected value of
+
+$$
+\hat{g}(\tau) = R_\tau \grad_\theta \sum_{t=0}^{T-1} \log \pi (a_t | x_t;
+\theta).
+$$
+
+So we fix an initial parameter $\theta$ and then iterate the following: sample a
+trajectory $\tau$ from the environment using $\pi(a | x; \theta)$; compute
+$\hat{g}(\tau)$; update $\theta$ by $\theta \mapsto \theta + \alpha
+\hat{g}(\tau)$. None of the updates will actually be in the correct direction,
+but if we update enough times then on average the step will be correct.
+
+The only thing we have to be able to do is compute $\grad_\theta \log \pi(a | x;
+\theta)$ for any given action $a$ and state $x$. This is where tensorflow comes
+in, which is basically an automatic differentiation machine.
+
+## Policy gradients with lower variance ##
+That's the basic policy gradient algorithm. To move closer to the A3C algorithm
+we need to introduce an approximate value function, denoted $V_{\theta'}(x)$. So
+long as the parameters $\theta'$ are independent of $\theta$, we must have
+$\grad_\theta V_{\theta'}(x) = 0$, which implies that $\grad_\theta
+\EE_\tau(V_{\theta'}(x_0) | x_0; \theta) = 0$. In the same way that we
+rearranged $\grad_\theta \EE_\tau(R_\tau | \theta)$ we can see that now
+
+$$
+\EE_\tau(V_{\theta'}(x_t) \grad_\theta \sum_{t=0}^{T-1} \log \pi(a_t | x_t;
+\theta)) = 0.
+$$
+
+variance of the estimator $\hat{g}(\tau)$ by subtracting a baseline from
+$R_\tau$. Formally, instead of using
+
+$$
+\hat{g}(\tau) = \left( \sum_{t'=1}^T r_{t'} \right) \grad_\theta
+\sum_{t=0}^{T-1} \log \pi (a_t | x_t; \theta),
+$$
+
+we can instead define $R_t = \sum_{t'=t}^T r_t$, and use
+
+$$
+\grad_\theta \sum_{t=0}^{T-1} \log \pi (a_t | x_t; \theta) R_t.
+$$
+
+We are free to subtract any constant function from $R_t$ in the above
+expression, since the expectation of $\sum_{t=0}^{T-1} \log \pi (a_t | x_t;
+\theta)$ is zero, so it will still have expectation zero when we muliply by a
+constant.
+
+We choose this 'constant', with respect to $\theta$ as an estimate of the value
+function: $V_{\theta'}(x)$.
+
+## A3C on the Cart and Pole problem ##
+This part is coming soon!
+
+While you wait... Here is the agent playing Space Invaders:
+
+<iframe width="560" height="315" src="https://www.youtube.com/embed/xXP77QiHFTs?autoplay=1&amp;rel=0&amp;controls=0&amp;showinfo=0" frameborder="0" allowfullscreen></iframe>
