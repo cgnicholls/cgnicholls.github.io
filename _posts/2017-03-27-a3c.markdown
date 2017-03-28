@@ -161,41 +161,43 @@ The only thing we have to be able to do is compute $\grad_\theta \log \pi(a | x;
 in, which is basically an automatic differentiation machine.
 
 ## Policy gradients with lower variance ##
-That's the basic policy gradient algorithm. To move closer to the A3C algorithm
-we need to introduce an approximate value function, denoted $V_{\theta'}(x)$. So
-long as the parameters $\theta'$ are independent of $\theta$, we must have
-$\grad_\theta V_{\theta'}(x) = 0$, which implies that $\grad_\theta
-\EE_\tau(V_{\theta'}(x_0) | x_0; \theta) = 0$. In the same way that we
-rearranged $\grad_\theta \EE_\tau(R_\tau | \theta)$ we can see that now
+Although $\hat{g}(\tau)$ is an unbiased estimator of the gradient of the
+expected reward, it has high variance, which means that we take a lot of
+steps in poor directions, even though on average the step will be in the correct
+direction. The next helpful idea is to try and reduce the variance of our
+estimate of the gradient.
+
+One can replace $R_\tau$ in the expression for $\hat{g}(\tau)$ by $R_t =
+\sum_{t'=t}^T r_{t'}$ and get the same expectation. This is because if $b_t$ is
+a function of states and actions up to time $t$, then $\EE_{s_{t+1\colon\infty},
+a_{t+1\colon\infty}}(b_t) = b_t$ and is thus a constant. This just says that the
+expectation of $b_t$ over future states and actions is just $b_t$ (which sounds
+obvious when you say it like that!). Now note that $\EE(\grad_\theta
+\sum_{t=0}^{T-1} \log \pi (a_t | x_t; \theta)) = \grad_\theta \EE(1) = 0$, so it
+will still have expectation zero when we muliply by a constant. Hence the
+following two expectations are equal
 
 $$
-\EE_\tau(V_{\theta'}(x_t) \grad_\theta \sum_{t=0}^{T-1} \log \pi(a_t | x_t;
-\theta)) = 0.
+\EE (\sum_{t=0}^{T-1} \grad_\theta \log \pi (a_t | x_t; \theta) (R_\tau - b_t))
+= \EE (\sum_{t=0}^{T-1} \grad_\theta \log \pi (a_t | x_t; \theta) R_\tau).
 $$
 
-variance of the estimator $\hat{g}(\tau)$ by subtracting a baseline from
-$R_\tau$. Formally, instead of using
+If we take $b_t = r_1 + \cdots + r_{t-1}$, then we arrive at the estimator
 
 $$
-\hat{g}(\tau) = \left( \sum_{t'=1}^T r_{t'} \right) \grad_\theta
-\sum_{t=0}^{T-1} \log \pi (a_t | x_t; \theta),
+\sum_{t=0}^{T-1} \grad_\theta \log \pi (a_t | x_t; \theta) R_t
 $$
 
-we can instead define $R_t = \sum_{t'=t}^T r_t$, and use
-
-$$
-\grad_\theta \sum_{t=0}^{T-1} \log \pi (a_t | x_t; \theta) R_t.
-$$
-
-We are free to subtract any constant function from $R_t$ in the above
-expression, since the expectation of $\sum_{t=0}^{T-1} \log \pi (a_t | x_t;
-\theta)$ is zero, so it will still have expectation zero when we muliply by a
-constant.
-
-We choose this 'constant', with respect to $\theta$ as an estimate of the value
-function: $V_{\theta'}(x)$.
+of the gradient.
 
 ## A3C on the Cart and Pole problem ##
+The A3C algorithm changes this estimator by replacing $R_t$ by something called
+the advantage function. What this boils down to is estimating the value of each
+state and comparing it to the value we observe. More on this next time!
+
+There's a really nice discussion of things you can replace $R_t$ with in this
+[paper](https://arxiv.org/abs/1506.02438).
+
 This part is coming soon!
 
 While you wait... Here is the agent playing Space Invaders:
