@@ -132,8 +132,7 @@ a_0, r_1, x_1, a_1, r_2, \ldots, x_{T-1}, a_{T-1}, r_T$, where $r_{t+1}$ is the
 reward for having been in state $x_t$, taken action $a_t$, and being
 transitioned to state $x_{t+1}$. In the episodic setting, we have terminal
 states and we assume that the sequence terminates after some finite time $T$
-(e.g.  when the agent dies or completes the game). We let $R_\tau = r_1 + \cdots
-+ r_T$, or sometimes we use a discount factor $0 < \gamma \le 1$ and let $R_\tau
+(e.g.  when the agent dies or completes the game). We let $R_\tau = r_1 + \cdots + r_T$, or sometimes we use a discount factor $0 < \gamma \le 1$ and let $R_\tau
 = r_1 + \gamma r_2 + \cdots \gamma^{T-1} r_T$.
 
 The policy gradient method aims to maximise $\EE_\tau[R_\tau | \pi; \theta]$. In
