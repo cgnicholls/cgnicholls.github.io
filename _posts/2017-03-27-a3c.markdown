@@ -48,12 +48,12 @@ possible.
 
 # The A3C algorithm #
 As with a lot of recent progress in deep reinforcement learning, the innovations
-in the paper weren't really dramatically new algorithmis, but how to force
-relatively well known algorithms to work well with a deep neural network. The
-A3C algorithm can be essentially described as using policy gradients with a
-function approximator, where the function approximator is a deep neural network
-and the authors use a clever method to try and ensure the agent explores the
-state space well.
+in the paper weren't really dramatically new algorithms, but how to force
+relatively well known algorithms to work well with a deep neural network. As I
+will soon explain in more detail, the A3C algorithm can be essentially described
+as using policy gradients with a function approximator, where the function
+approximator is a deep neural network and the authors use a clever method to try
+and ensure the agent explores the state space well.
 
 In the paper there are actually two versions of the A3C algorithm: one just uses
 a feedforward convolutional neural network, while the other includes a recurrent
@@ -63,9 +63,9 @@ write a follow up to this including the recurrent layer, as well as the
 extension to continuous action spaces.
 
 # Brief reminder of reinforcement learning #
-I went over the policy gradient method in my first post on reinforcement
-learning, so it might be worth reading that first if you aren't familiar with
-policy gradients. I will briefly summarise what we need here though.
+I had an introduction to reinforcement learning and the policy gradient method
+in my first post on reinforcement learning, so it might be worth reading that
+first, but I will briefly summarise what we need here anyway.
 
 First we need to discuss actions and states. I will give some examples using
 ATARI games and then define them formally.
@@ -73,21 +73,13 @@ ATARI games and then define them formally.
 For example, in Space Invaders, the possible $a$ might be: 0 for moving left, 1
 for moving right and 2 for shoot. And if we are playing ATARI games from pixel
 values, then the input $x$ just looks like a screenshot of the game. This can be
-represented as a vector by letting the red, green and blue values of each pixel
-(each between 0 and 1, say) correspond to an entry in the vector. If we just had
-a two pixel game (which I'm sure would be very exciting) then we would have a
-6-dimensional vector. For example,
-
-$$(1.0, 0.0, 0.0, 1.0, 1.0, 1.0) $$
-
-would represent the first pixel being red (its red value is 1 and the green and
-blue are both zero) and the second pixel being white (each of red, green and
-blue are 1, so the pixel is white).
+represented as a 3D array by considering each of the red, green and blue colour
+channels as being a 2D image.
 
 Now, an ATARI game screen is $210 \times 160$ pixels, so we would have $210
-\times 160 \times 3 = 100,800$ dimensions in the vector representing one screen.
-In fact, one can see that a single game screen gives insufficient information to
-the agent, since it doesn't show which direction objects are moving in. 
+\times 160 \times 3 = 100,800$ entries in the array representing one screen.  In
+fact, one can see that a single game screen gives insufficient information to
+the agent, since it doesn't show which direction objects are moving in.
 
 In the following, we assume that the action space is some finite set of actions,
 and we can thus label them $1, 2, \ldots, n$. We also assume that $x$ is an
