@@ -14,7 +14,7 @@ $
 \def\grad{\nabla}
 $
 
-# Introduction #
+### Introduction ###
 I've been playing around with deep reinforcement learning for a little while,
 but have always found it hard to get the state of the art algorithms working.
 This is in part because getting any algorithm to work requires some good choices
@@ -46,7 +46,7 @@ My aim is to make the algorithm easy to understand, and also make it so that
 there are as few choices of hyperparameters and as little deep learning magic as
 possible.
 
-# The A3C algorithm #
+## The A3C algorithm ##
 As with a lot of recent progress in deep reinforcement learning, the innovations
 in the paper weren't really dramatically new algorithms, but how to force
 relatively well known algorithms to work well with a deep neural network. As I
@@ -62,7 +62,7 @@ possible. I also only focus on the discrete action case here. Perhaps I will
 write a follow up to this including the recurrent layer, as well as the
 extension to continuous action spaces.
 
-# Brief reminder of reinforcement learning #
+### Brief reminder of reinforcement learning ###
 I had an introduction to reinforcement learning and the policy gradient method
 in my first post on reinforcement learning, so it might be worth reading that
 first, but I will briefly summarise what we need here anyway.
@@ -89,7 +89,7 @@ vectors), but instead use 3d arrays. The first and second dimensions are just
 the width and height of the input image, and the third dimension is time. You
 can think of these as just being a sequence of input images.
 
-# Overview of policy gradients #
+## Overview of policy gradients ##
 
 The idea of a policy is to parametrise the conditional probability of performing
 a given action $a$ given some state $x$. That is, given a state $x$, we want to
@@ -200,7 +200,7 @@ discussed above.
 The A3C algorithm changes this estimator by replacing $R_t$ by something called
 the advantage function.
 
-### Value functions ###
+## Value functions ##
 To discuss the advantage function, we first have to define some useful value
 functions. Firstly, the state-value function $V_\pi(s)$ is defined as the
 expected sum of rewards when starting in state $s$ and following policy $\pi$.
@@ -343,13 +343,12 @@ agent computes the gradients (in its own process) and then updates the shared
 parameters. If this all works in parallel, you expect to see a linear speedup
 with the number of agents.
 
-# The code #
+### The code ###
 
-Let's implement the algorithm now. First we'll write a small wrapper around Open
-AI Gym to give us more control about what the agent sees. We'll see in the tricks section that it's important to preprocess the images. This includes something called 'frame skipping', which is where we only show the agent every $n$th frame for some small $n$.
+Let's implement the algorithm now. The full code can be found as the files `custom_gym.py`, `a3c.py`, `agent.py` in [this](https://github.com/cgnicholls/reinforcement-learning/tree/master/a3c) github repository. There are a few simplifications in the code below, as I felt it was easier to explain without including things like saving and restoring to
 
 ## Wrapper around Open AI Gym ##
-Open AI Gym lets us hold multiple instances of an environment. In the main training program, we create an environment using
+ First we'll write a small wrapper around Open AI Gym to give us more control about what the agent sees. We'll see in the tricks section that it's important to preprocess the images. This includes something called 'frame skipping', which is where we only show the agent every $n$th frame for some small $n$. Open AI Gym lets us hold multiple instances of an environment. In the main training program, we create an environment using:
 
 ~~~~python
 import gym
@@ -813,7 +812,41 @@ def evaluator(agent, env, sess, T_queue):
         sleep(1.0)
 ~~~~
 
+Finally, we import some libraries and set up the all-important hyperparameters.
+
+~~~~python
+import os
+import sys, getopt
+import threading
+import tensorflow as tf
+import numpy as np
+from time import time, sleep
+import Queue
+from custom_gym import CustomGym
+import random
+from agent import Agent
+
+# Train for this many steps
+T_MAX = 100000000
+# Use this many threads
+NUM_THREADS = 8
+# Initial learning rate for Adam
+INITIAL_LEARNING_RATE = 1e-4
+# The discount factor
+DISCOUNT_FACTOR = 0.99
+# Evaluate the agent and print out average reward every this many steps
+VERBOSE_EVERY = 40000
+# Update the parameters in each thread after this many steps in that thread
+I_ASYNC_UPDATE = 5
+# Use this global variable to exit the training loop in each thread once we've finished.
+training_finished = False
+~~~~
+
 Now just call `a3c` with the desired game name.
+
+~~~~python
+a3c(game_name='SpaceInvaders-v0')
+~~~~
 
 ## Tricks to get it to work ##
 
