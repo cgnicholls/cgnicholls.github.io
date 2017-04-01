@@ -303,7 +303,7 @@ for T in range(max_T):
         val_i = V(s_i, theta_v)
         compute grad_theta_pi log pi(a_i, s_i, theta_pi) * (R_i - val_i)
         compute grad_theta_v (R_i - val_i)^2
-        
+
     update theta_pi, theta_v by the computed gradients
 ~~~~
 
@@ -342,6 +342,478 @@ the local policy. After `t_max` steps, or if it sees a terminal frame, then that
 agent computes the gradients (in its own process) and then updates the shared
 parameters. If this all works in parallel, you expect to see a linear speedup
 with the number of agents.
+
+# The code #
+
+Let's implement the algorithm now. First we'll write a small wrapper around Open
+AI Gym to give us more control about what the agent sees. We'll see in the tricks section that it's important to preprocess the images. This includes something called 'frame skipping', which is where we only show the agent every $n$th frame for some small $n$.
+
+## Wrapper around Open AI Gym ##
+Open AI Gym lets us hold multiple instances of an environment. In the main training program, we create an environment using
+
+~~~~python
+import gym
+env = gym.make('SpaceInvaders-v0')
+~~~~
+
+Our 'CustomGym' takes in an environment and gives a few extra features on top. It still provides the same functions as a gym environment though. The code in this section all goes into custom_gym.py
+
+~~~~python
+# A wrapper class for Open AI Gym.
+class CustomGym:
+  def __init__(self, game_name, skip_actions=4, num_frames=4, w=84, h=84):
+    # game_name: the name of the Open AI Gym environment
+    # skip_actions: the number of frames to repeat an action for
+    # num_frames: the number of frames to stack in one state
+    # w: width of the state input
+    # h: height of the state input.
+
+    self.env = gym.make(game_name)
+    self.num_frames = num_frames
+    self.skip_actions = skip_actions
+    self.w = w
+    self.h = h
+
+    # For some of the ATARI games the action spaces are much larger than we want
+    # and contain repeated actions, so I worked out simplified actions for these
+    # games.
+    if game_name == 'SpaceInvaders-v0':
+      self.action_space = [1,2,3]
+    elif game_name == 'Pong-v0':
+      self.action_space = [1,2,3]
+    elif game_name == 'Breakout-v0':
+      self.action_space = [1,4,5]
+    else:
+      # Otherwise, use the actions specified by Open AI.
+      self.action_space = range(env.action_space.n)
+
+    # Store the rest.
+    self.action_size = len(self.action_space)
+    self.state = None
+    self.game_name = game_name
+~~~~
+
+Now we have a function to preprocess the frames.
+
+~~~~python
+# Preprocess the input and stack the frames.
+def preprocess(self, obs, is_start=False):
+  # First convert to grayscale
+  grayscale = obs.astype('float32').mean(2)
+  # Resize the image to w x h and scale to between 0 and 1
+  s = imresize(grayscale, (self.w, self.h)).astype('float32') * (1.0/255.0)
+  # Next reshape the image to a 4D array with 1st and 4th dimensions of
+  # size 1
+  s = s.reshape(1, s.shape[0], s.shape[1], 1)
+  # Now stack the frames. If this is the first frame, then repeat it
+  # num_frames times.
+  if is_start or self.state is None:
+    self.state = np.repeat(s, self.num_frames, axis=3)
+  else:
+    self.state = np.append(s, self.state[:,:,:,:self.num_frames-1], axis=3)
+  return self.state
+~~~~
+
+Next we have the 'render', 'step' and 'reset' functions. The only one of
+interest is 'step', where we want to repeat the given action `skip_actions` times.
+
+~~~~python
+  # Render the current frame
+  def render(self):
+    self.env.render()
+
+  # Reset the environment and return the state.
+  def reset(self):
+    return self.preprocess(self.env.reset(), is_start=True)
+
+  # Step the environment with the given action.
+  def step(self, action_idx):
+    action = self.action_space[action_idx]
+    accum_reward = 0
+    prev_s = None
+    for _ in range(self.skip_actions):
+      s, r, term, info = self.env.step(action)
+      accum_reward += r
+      if term:
+        break
+      prev_s = s
+
+    # Takes maximum value for each pixel value over the current and previous
+    # frame. Used to get round Atari sprites flickering (Mnih et al. (2015))
+    if self.game_name == 'SpaceInvaders-v0' and prev_s is not None:
+      s = np.maximum.reduce([s, prev_s])
+    return self.preprocess(s), accum_reward, term, info
+~~~~
+
+Note that we have a trick at the end of 'step' to get around flickering in
+Space Invaders. It turns out that if you skip 4 frames at a time for Space
+Invaders then the bullets can sometimes be invisible. So when skipping frames
+in Space Invaders, we take the maximum value out of the 3rd and 4th frames (if
+we skip 4 frames at a time).
+
+## Agent ##
+We now look at the code in the 'agent.py' file. First, we build the network in tensorflow. Note that we use variable scopes, which are a useful way of separating out the tensors in your graph. Also we use tf.contrib, which is a helpful way of specifying hyperparameters in a graph. It turns out to be important to initialise the weights and biases well. One well-known method is called 'Xavier initialisation', which chooses the variance of the distribution (either uniformly or normally distributed) to be $1/N_\mathrm{in}$ where $N_\mathrm{in}$ is the number of neurons that are input to a given neuron in this layer. Another commonly used alternative is $2 / (N_\mathrm{in} + N_\mathrm{out})$, where $N_\mathrm{out}$ is the number of neurons output from a given neuron.
+
+For fully connected layers, this is easy: the number of neurons input to a given layer is the number of neurons in the previous layer. You can ignore the batch size, since the number of neurons is independent of batch size. For convolutional layers, where the input is a 3D array (ignoring the 1st dimension, which is the batch size), the number of neuron inputs to a given layer is the product of the filter size by the number of input filters. So if the filter size of the current layer is $[4,4]$ and there are 16 filters on the previous layer, then the number of inputs would be $4 \times 4 \times 16$.
+
+There are slightly different heuristics if the nonlinearity is 'relu' rather than 'sigmoid', but this should work pretty well.
+
+~~~~python
+# Builds the DQN model as in Mnih et. al (DQN paper). We edit the output so that
+# there is a softmax output for the policy from the fc1 layer, and a linear
+# output from the fc1 layer for the value function.
+def build_model(self, h, w, channels):
+  state = tf.placeholder('float32', shape=(None, h, w, channels), name='state')
+  # First convolutional layer
+  with tf.variable_scope('conv1'):
+    conv1 = tf.contrib.layers.convolution2d(inputs=state,
+    num_outputs=16, kernel_size=[8,8], stride=[4,4], padding="VALID",
+    activation_fn=tf.nn.relu,
+    weights_initializer=tf.contrib.layers.xavier_initializer_conv2d(),
+    biases_initializer=tf.zeros_initializer())
+
+  # Second convolutional layer
+  with tf.variable_scope('conv2'):
+    conv2 = tf.contrib.layers.convolution2d(inputs=conv1, num_outputs=32,
+    kernel_size=[4,4], stride=[2,2], padding="VALID",
+    activation_fn=tf.nn.relu,
+    weights_initializer=tf.contrib.layers.xavier_initializer_conv2d(),
+    biases_initializer=tf.zeros_initializer())
+
+  # Flatten the network
+  with tf.variable_scope('flatten'):
+    flatten = tf.contrib.layers.flatten(inputs=conv2)
+
+  # Fully connected layer with 256 hidden units
+  with tf.variable_scope('fc1'):
+    fc1 = tf.contrib.layers.fully_connected(inputs=flatten, num_outputs=256,
+    activation_fn=tf.nn.relu,
+    weights_initializer=tf.contrib.layers.xavier_initializer(),
+    biases_initializer=tf.zeros_initializer())
+
+  # The policy output
+  with tf.variable_scope('policy'):
+    policy = tf.contrib.layers.fully_connected(inputs=fc1,
+    num_outputs=self.action_size, activation_fn=tf.nn.softmax,
+    weights_initializer=tf.contrib.layers.xavier_initializer(),
+    biases_initializer=None)
+
+  # The value output
+  with tf.variable_scope('value'):
+    value = tf.contrib.layers.fully_connected(inputs=fc1, num_outputs=1,
+    activation_fn=None,
+    weights_initializer=tf.contrib.layers.xavier_initializer(),
+    biases_initializer=None)
+
+  return state, policy, value
+~~~~
+
+Next we make the tensors we need for training.
+
+~~~~python
+import tensorflow as tf
+class Agent():
+    def __init__(self, session, action_size, optimizer=tf.train.AdamOptimizer(1e-4)):
+        # session: the tensorflow session
+        # action_size: the number of actions
+        self.action_size = action_size
+        self.optimizer = optimizer
+        self.sess = session
+
+        with tf.variable_scope('network'):
+            # Store the state, policy and value for the network
+            self.state, self.policy, self.value = self.build_model(84, 84, 4)
+
+            # Get the weights for the network
+            self.weights = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='network')
+
+            # Placeholders for the action, advantage and target value
+            self.action = tf.placeholder('int32', [None], name='action')
+            self.target_value = tf.placeholder('float32', [None], name='target_value')
+            self.advantages = tf.placeholder('float32', [None], name='advantages')
+
+        with tf.variable_scope('optimizer'):
+            # Compute the one hot vectors for each action given.
+            action_one_hot = tf.one_hot(self.action, self.action_size, 1.0, 0.0)
+
+            # Clip the policy output to avoid zeros and ones -- these don't play well with taking log.
+            min_policy = 0.000001
+            max_policy = 0.999999
+            self.log_policy = tf.log(tf.clip_by_value(self.policy, 0.000001, 0.999999))
+
+            # For a given state and action, compute the log of the policy at
+            # that action for that state. This also works on batches.
+            self.log_pi_for_action = tf.reduce_sum(tf.multiply(self.log_policy, action_one_hot), reduction_indices=1)
+
+            # Takes in R_t - V(s_t) as in the async paper. Note that we feed in
+            # the advantages so that V(s_t) is treated as a constant for the
+            # gradient. This is because V(s_t) is the baseline (called 'b' in
+            # the REINFORCE algorithm). As long as the baseline is constant wrt
+            # the parameters we are optimising (in this case those for the
+            # policy), then the expected value of grad_theta log pi * b is zero,
+            # so the choice of b doesn't affect the expectation. It reduces the
+            # variance though.
+            # We want to do gradient ascent on the expected discounted reward.
+            # The gradient of the expected discounted reward is the gradient of
+            # log pi * (R - estimated V), where R is the sampled reward from the
+            # given state following the policy pi. Since we want to maximise
+            # this, we define the policy loss as the negative and get tensorflow
+            # to do the automatic differentiation for us.
+            self.policy_loss = -tf.reduce_mean(self.log_pi_for_action * self.advantages)
+
+            # The value loss is much easier to understand: we want our value
+            # function to accurately estimated the sampled discounted rewards,
+            # so we just impose a square error loss.
+            # Note that the target value should be the discounted reward for the
+            # state as just sampled.
+            self.value_loss = tf.reduce_mean(tf.square(self.target_value - self.value))
+
+            # We follow Mnih's paper and introduce the entropy as another loss
+            # to the policy. The entropy of a probability distribution is just
+            # the expected value of - log P(X), denoted E(-log P(X)), which we
+            # can compute for our policy at any given state with
+            # sum(policy * -log(policy)), as below. This will be a positive
+            # number, since self.policy contains numbers between 0 and 1, so the
+            # log is negative. Note that entropy is smaller when the probability
+            # distribution is more concentrated on one action, so a larger
+            # entropy implies more exploration. Thus we penalise small entropy,
+            # or equivalently, add -entropy to our loss.
+            self.entropy = tf.reduce_sum(tf.multiply(self.policy, -self.log_policy))
+
+            # Try to minimise the loss. There is some rationale for choosing the
+            # weighted linear combination here that I found somewhere else that
+            # I can't remember, but I haven't tried to optimise it.
+            # Note the negative entropy term, which encourages exploration:
+            # higher entropy corresponds to less certainty.
+            self.loss = 0.5 * self.value_loss + self.policy_loss - self.entropy * 0.01
+
+            # Compute the gradient of the loss with respect to all the weights,
+            # and create a list of tuples consisting of the gradient to apply to
+            # the weight.
+            grads = tf.gradients(self.loss, self.weights)
+            grads, _ = tf.clip_by_global_norm(grads, 40.0)
+            grads_vars = list(zip(grads, self.weights))
+
+            # Create an operator to apply the gradients using the optimizer.
+            # Note that apply_gradients is the second part of minimize() for the
+            # optimizer, so will minimize the loss.
+            self.train_op = optimizer.apply_gradients(grads_vars)
+~~~~
+
+Finally, we have some helper functions for getting the policy, value and training.
+
+~~~~python
+    def get_value(self, state):
+        return self.sess.run(self.value, {self.state: state}).flatten()
+
+    def get_policy_and_value(self, state):
+        policy, value = self.sess.run([self.policy, self.value], {self.state:
+        state})
+        return policy.flatten(), value.flatten()
+
+    # Train the network on the given states and rewards
+    def train(self, states, actions, target_values, advantages):
+        # Training
+        self.sess.run(self.train_op, feed_dict={
+            self.state: states,
+            self.action: actions,
+            self.target_value: target_values,
+            self.advantages: advantages
+        })
+~~~~
+
+## The main training program ##
+In the file 'a3c.py', we run the main training loop. Note that we use a Queue in order to count the number of training steps we have done globally. This is a nice way of incrementing a single number across many threads. I found that if I tried to do this with a central variable in tensorflow, then the number wouldn't always increment well across threads and you would find sequences like $1, 2, 3, 4, 4, 4, 7, 8$.
+
+~~~~python
+def async_trainer(agent, env, sess, thread_idx, T_queue, summary, saver,
+    save_path):
+    print "Training thread", thread_idx
+    T = T_queue.get()
+    T_queue.put(T+1)
+    t = 0
+
+    last_verbose = T
+    last_time = time()
+    last_target_update = T
+
+    terminal = True
+    while T < T_MAX:
+        t_start = t
+        batch_states = []
+        batch_rewards = []
+        batch_actions = []
+        baseline_values = []
+
+        if terminal:
+            terminal = False
+            state = env.reset()
+
+        while not terminal and len(batch_states) < I_ASYNC_UPDATE:
+            # Save the current state
+            batch_states.append(state)
+
+            # Choose an action randomly according to the policy
+            # probabilities. We do this anyway to prevent us having to compute
+            # the baseline value separately.
+            policy, value = agent.get_policy_and_value(state)
+            action_idx = np.random.choice(agent.action_size, p=policy)
+
+            # Take the action and get the next state, reward and terminal.
+            state, reward, terminal, _ = env.step(action_idx)
+
+            # Update counters
+            t += 1
+            T = T_queue.get()
+            T_queue.put(T+1)
+
+            # Clip the reward to be between -1 and 1
+            reward = np.clip(reward, -1, 1)
+
+            # Save the rewards and actions
+            batch_rewards.append(reward)
+            batch_actions.append(action_idx)
+            baseline_values.append(value[0])
+
+        target_value = 0
+        # If the last state was terminal, just put R = 0. Else we want the
+        # estimated value of the last state.
+        if not terminal:
+            target_value = agent.get_value(state)[0]
+        last_R = target_value
+
+        # Compute the sampled n-step discounted reward
+        batch_target_values = []
+        for reward in reversed(batch_rewards):
+            target_value = reward + DISCOUNT_FACTOR * target_value
+            batch_target_values.append(target_value)
+        # Reverse the batch target values, so they are in the correct order
+        # again.
+        batch_target_values.reverse()
+
+        # Compute the estimated value of each state
+        batch_advantages = np.array(batch_target_values) - np.array(baseline_values)
+
+        # Apply asynchronous gradient update
+        agent.train(np.vstack(batch_states), batch_actions, batch_target_values,
+        batch_advantages)
+
+    global training_finished
+    training_finished = True
+~~~~
+
+We have basically written the code to do the advantage actor-critic algorithm, but here is where we make it asynchronous. We have to run the 'async_trainer' function in separate threads. Each one has a separate CustomGym, so that the agents can be in different parts of the state space at any one time. In fact, we make one more CustomGym than the number of trainer threads, which is used to evaluate the training.
+
+~~~~python
+def a3c(game_name, num_threads=8, restore=None, save_path=None):
+    # Create the environments
+    envs = []
+    for _ in range(num_threads):
+        envs.append(CustomGym(game_name))
+
+    # Also create an environment for evaluating the agent
+    evaluation_env = CustomGym(gym_name)
+
+    # Create the tensorflow session and use it in context
+    with tf.Session() as sess:
+        # Create the agent
+        agent = Agent(session=sess, action_size=envs[0].action_size,
+        optimizer=tf.train.AdamOptimizer(INITIAL_LEARNING_RATE))
+
+        # Create a saver, and only keep 2 checkpoints.
+        saver = tf.train.Saver(max_to_keep=2)
+
+        T_queue = Queue.Queue()
+
+        # Either restore the parameters or don't.
+        if restore is not None:
+            saver.restore(sess, save_path + '-' + str(restore))
+            last_T = restore
+            print "T was:", last_T
+            T_queue.put(last_T)
+        else:
+            sess.run(tf.global_variables_initializer())
+            T_queue.put(0)
+
+        summary = Summary(save_path, agent)
+
+        # Create a process for each worker
+        processes = []
+        for i in range(num_threads):
+            processes.append(threading.Thread(target=async_trainer, args=(agent,
+            envs[i], sess, i, T_queue, summary, saver, save_path,)))
+
+        # Create a process to evaluate the agent
+        processes.append(threading.Thread(target=evaluator, args=(agent,
+        evaluation_env, sess, T_queue,)))
+
+        # Start all the processes
+        for p in processes:
+            p.daemon = True
+            p.start()
+
+        # Until training is finished
+        while not training_finished:
+            sleep(0.01)
+
+        # Join the processes, so we get this thread back.
+        for p in processes:
+            p.join()
+~~~~
+
+There is a simple function to estimate the reward of the agent at a given point in time.
+
+~~~~python
+def estimate_reward(agent, env, episodes=10, max_steps=10000):
+    episode_rewards = []
+    episode_vals = []
+    t = 0
+    for i in range(episodes):
+        episode_reward = 0
+        state = env.reset()
+        terminal = False
+        while not terminal:
+            policy, value = agent.get_policy_and_value(state)
+            action_idx = np.random.choice(agent.action_size, p=policy)
+            state, reward, terminal, _ = env.step(action_idx)
+            t += 1
+            episode_vals.append(value)
+            episode_reward += reward
+            if t > max_steps:
+                episode_rewards.append(episode_reward)
+                return episode_rewards, episode_vals
+        episode_rewards.append(episode_reward)
+    return episode_rewards, episode_vals
+~~~~
+
+We also have the evaluator function, which runs in a separate thread and evaluates every `VERBOSE_EVERY` training steps. It estimates the reward of the agent at the current time. If it is given a `saver` and a `save_path`, then it saves the parameters also. The settings for this can be found in the github version of this code, but for simplicity I don't include it here.
+
+~~~~python
+def evaluator(agent, env, sess, T_queue):
+    # Read T and put the same T back on.
+    T = T_queue.get()
+    T_queue.put(T)
+    last_time = time()
+    last_verbose = T
+    while T < T_MAX:
+        T = T_queue.get()
+        T_queue.put(T)
+        if T - last_verbose >= VERBOSE_EVERY:
+            print "T", T
+            current_time = time()
+            print "Train steps per second", float(T - last_verbose) / (current_time - last_time)
+            last_time = current_time
+            last_verbose = T
+
+            print "Evaluating agent"
+            episode_rewards, episode_vals = estimate_reward(agent, env, episodes=5)
+            avg_ep_r = np.mean(episode_rewards)
+            avg_val = np.mean(episode_vals)
+            print "Avg ep reward", avg_ep_r, "Average value", avg_val
+        sleep(1.0)
+~~~~
+
+Now just call `a3c` with the desired game name.
 
 ## Tricks to get it to work ##
 
