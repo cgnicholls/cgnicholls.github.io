@@ -12,8 +12,9 @@ description: > # this means to ignore newlines until "baseurl:"
     A number theory PhD student trying to learn machine learning.
 baseurl: "" # the subpath of your site, e.g. /blog
 url: "http://yourdomain.com" # the base hostname & protocol for your site
-twitter_username: None
+twitter_username: cgnicholls92
 github_username:  cgnicholls
 
 # Build settings
 markdown: kramdown
+theme: minima
