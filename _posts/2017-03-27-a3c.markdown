@@ -63,60 +63,72 @@ write a follow up to this including the recurrent layer, as well as the
 extension to continuous action spaces.
 
 ### Brief reminder of reinforcement learning ###
-I had an introduction to reinforcement learning and the policy gradient method
-in my first post on reinforcement learning, so it might be worth reading that
-first, but I will briefly summarise what we need here anyway.
+I gave an introduction to reinforcement learning and the policy gradient method
+in my [first
+post](https://cgnicholls.github.io/reinforcement-learning/2016/08/20/reinforcement-learning.html)
+on reinforcement learning, so it might be worth reading that first, but I will
+briefly summarise what we need here anyway.
 
-First we need to discuss actions and states. I will give some examples using
-ATARI games and then define them formally.
+First we need to discuss actions and states. Actions are the things that the
+agent can do at a given time, and the state is the agent's representation of
+everything that it knows in the game. The agent has to decide what to do using
+only its current state as information -- since at each time step, that's all it
+knows.
 
 For example, in Space Invaders, the possible $a$ might be: 0 for moving left, 1
 for moving right and 2 for shoot. And if we are playing ATARI games from pixel
 values, then the input $x$ just looks like a screenshot of the game. This can be
 represented as a 3D array by considering each of the red, green and blue colour
-channels as being a 2D image.
+channels as being a 2D image. But in a standard preprocessing trick, since
+colours don't seem to matter, we usually just take the average of all three
+colour channels, thus getting back to a 2D image. However, one can see that a
+single game screen gives insufficient information to the agent, since it doesn't
+show which direction objects are moving in. A common solution to this is to show
+the agent several frames at a time: the current frame, along with the previous 3
+frames, say.
 
 Now, an ATARI game screen is $210 \times 160$ pixels, so we would have $210
-\times 160 \times 3 = 100,800$ entries in the array representing one screen.  In
-fact, one can see that a single game screen gives insufficient information to
-the agent, since it doesn't show which direction objects are moving in.
-
-In the following, we assume that the action space is some finite set of actions,
-and we can thus label them $1, 2, \ldots, n$. We also assume that $x$ is an
-$n$-dimensional vector, or more generally, an array, that represents the current
-state. In fact, in the ATARI setup we don't use 1-dimensional arrays (i.e.
-vectors), but instead use 3d arrays. The first and second dimensions are just
-the width and height of the input image, and the third dimension is time. You
-can think of these as just being a sequence of input images.
+\times 160 \times 4 = 134,400$ entries in the array representing one screen,
+which seems like a lot of information in order to decide where to go. Andrej
+Karpathy has a great [blog post](http://karpathy.github.io/2016/05/31/rl/) about
+playing Pong from pixels, and manages to get the most basic policy gradient
+algorithm to work on this, using just a feedforward neural network. He uses a
+bit of preprocessing to make it easier though -- for example, he makes sure that
+only the paddles and ball have nonzero values in the image (by zeroing out the
+background), and also uses a difference of frames (current frame minus previous
+frame) instead of showing the agent several frames at a time. We will use a
+convolutional neural network, which will hopefully make it easier to do a little
+less preprocessing. In Space Invaders, you would expect to have to work harder
+to get the agent to identify the aliens and bullets.
 
 ## Overview of policy gradients ##
 
 The idea of a policy is to parametrise the conditional probability of performing
 a given action $a$ given some state $x$. That is, given a state $x$, we want to
-compute, for each possible action $a$, the probability $P(a | x; \theta)$ of
+compute, for each possible action $a$, the probability $P(a \mid x; \theta)$ of
 performing action $a$ given that we are in state $x$. We write $\theta$ inside
 the probability to denote that the probability is determined by the parameter
 $\theta$. In the following $\theta$ will be the weights of our deep neural
 network, so will actually be a million numbers or so.
 
-I think there is sometimes confusion with what $P(a | x; \theta)$ means. For us,
-it means that while the agent is playing the game, or training, whenever we see
-state $x$ we will choose the action by first computing $P(a | x; \theta)$ for
-each action $a$ and then sampling the action from this probability distribution.
-As it happens, if you really have a Markov Decision Process (i.e. the future is
-independent of the past, given the current state), then if an optimal policy
-exists, there is a deterministic optimal policy. However, using a stochastic
-policy (i.e. choosing actions with some randomness) is helpful. For one, it
-allows the agent to explore the state space without always taking the same
-trajectory, which is important for the exploration-exploitation tradeoff. In
-Space Invaders, for example, it turns out that if you choose to shoot at each
-timestep then you get a reward of something like 180 every time. If you weren't
-forced to explore other actions, you may well think this was good enough and
-exploit this (over, say, always moving left, which would give you zero reward).
+Note that $P(a \mid x; \theta)$ is actually quite concrete. It just means that
+while the agent is playing the game, or training, whenever we see state $x$ we
+will choose the action by first computing $P(a \mid x; \theta)$ for each action $a$
+and then sampling the action from this probability distribution. As it happens,
+if you really have a Markov Decision Process (i.e. the future is independent of
+the past, given the current state), then if an optimal policy exists, there is a
+deterministic optimal policy. However, using a stochastic policy (i.e. choosing
+actions with some randomness) is helpful. For one, it allows the agent to
+explore the state space without always taking the same trajectory, which is
+important for the exploration-exploitation tradeoff. In Space Invaders, for
+example, it turns out that if you choose to shoot at each timestep then you get
+a reward of something like 180 every time. If you weren't forced to explore
+other actions, you may well think this was good enough and exploit this (over,
+say, always moving left, which would give you zero reward).
 
-To fit with standard notation, we define $\pi(a | x; \theta) = P(a | x;
+To fit with standard notation, we define $\pi(a \mid x; \theta) = P(a \mid x;
 \theta)$. We are now looking to find a good set of parameters $\theta$, such
-that, if we follow the policy $\pi(a | x; \theta)$, then we have a high expected
+that, if we follow the policy $\pi(a \mid x; \theta)$, then we have a high expected
 reward.
 
 Denote by $\tau$ a trajectory of the MDP. That is, $\tau$ is a sequence $x_0,
@@ -127,28 +139,28 @@ states and we assume that the sequence terminates after some finite time $T$
 (e.g.  when the agent dies or completes the game). We let $R_\tau = r_1 + \cdots + r_T$, or sometimes we use a discount factor $0 < \gamma \le 1$ and let $R_\tau
 = r_1 + \gamma r_2 + \cdots \gamma^{T-1} r_T$.
 
-The policy gradient method aims to maximise $\EE_\tau[R_\tau | \pi; \theta]$. In
+The policy gradient method aims to maximise $\EE_\tau[R_\tau \mid \pi; \theta]$. In
 words, this is the expected reward of a trajectory when the agent follows policy
 $\pi$. The method tries to maximise this by gradient ascent with respect to the
-parameters $\theta$. Thus we compute $\grad_\theta \EE_\tau[R_\tau | \pi;
+parameters $\theta$. Thus we compute $\grad_\theta \EE_\tau[R_\tau \mid \pi;
 \theta]$ and then iteratively improve $\theta$ by $\theta \mapsto \theta +
-\alpha \cdot \grad_\theta \EE_\tau [R_\tau | \pi; \theta]$.
+\alpha \cdot \grad_\theta \EE_\tau [R_\tau \mid \pi; \theta]$.
 
-We saw last time that we can compute $\grad_\theta \EE_\tau[R_\tau | \pi;
+We saw last time that we can compute $\grad_\theta \EE_\tau[R_\tau \mid \pi;
 \theta]$ as the expected value of
 
 $$
-\hat{g}(\tau) = R_\tau \grad_\theta \sum_{t=0}^{T-1} \log \pi (a_t | x_t;
+\hat{g}(\tau) = R_\tau \grad_\theta \sum_{t=0}^{T-1} \log \pi (a_t \mid x_t;
 \theta).
 $$
 
 So we fix an initial parameter $\theta$ and then iterate the following: sample a
-trajectory $\tau$ from the environment using $\pi(a | x; \theta)$; compute
+trajectory $\tau$ from the environment using $\pi(a \mid x; \theta)$; compute
 $\hat{g}(\tau)$; update $\theta$ by $\theta \mapsto \theta + \alpha
 \hat{g}(\tau)$. None of the updates will actually be in the correct direction,
 but if we update enough times then on average the step will be correct.
 
-The only thing we have to be able to do is compute $\grad_\theta \log \pi(a | x;
+The only thing we have to be able to do is compute $\grad_\theta \log \pi(a \mid x;
 \theta)$ for any given action $a$ and state $x$. This is where tensorflow comes
 in, which is basically an automatic differentiation machine.
 
@@ -161,25 +173,67 @@ estimate of the gradient.
 
 One can replace $R_\tau$ in the expression for $\hat{g}(\tau)$ by $R_t =
 \sum_{t'=t}^T r_{t'}$ and get the same expectation. This is because if $b_t$ is
-a function of states and actions up to time $t$, then $\EE_{s_{t+1\colon\infty},
-a_{t+1\colon\infty}}(b_t) = b_t$ and is thus a constant. This just says that the
-expectation of $b_t$ over future states and actions is just $b_t$ (which sounds
-obvious when you say it like that!). Now note that $\EE(\grad_\theta
-\sum_{t=0}^{T-1} \log \pi (a_t | x_t; \theta)) = \grad_\theta \EE(1) = 0$.
-The first equality follows by the same trick as last time, where we both
-multiply and divide by $P(\tau | \theta)$ inside the expectation. When we now
-include the $b_t$ (which is constant), we thus also get zero expectation. Hence
-the following two expectations are equal
+a function of states, actions and rewards up to time $t$, then
 
 $$
-\EE (\sum_{t=0}^{T-1} \grad_\theta \log \pi (a_t | x_t; \theta) (R_\tau - b_t))
-= \EE (\sum_{t=0}^{T-1} \grad_\theta \log \pi (a_t | x_t; \theta) R_\tau).
+\EE_{s_{t+1\colon\infty}, a_{t+1\colon\infty}}(b_t) = b_t
+$$
+
+and is thus a constant. Here, the subscript $s_{t+1\colon \infty}, a_{t+1\colon
+\infty}$ just means those states and actions in the given range. Thus the
+equation above just says that the expectation of $b_t$ over future states and
+actions is just $b_t$ (which sounds obvious when you say it like that!). Now
+note that, repeating the calculation from [my first
+post](https://cgnicholls.github.io/reinforcement-learning/2016/08/20/reinforcement-learning.html),
+
+$$
+    \EE_{\tau_{t+1\colon\infty}} (b_t \sum_{t'=t+1}^T \grad_\theta \log \pi(a_{t'} \mid s_{t'}, \theta)) = 0.
+$$
+
+<!--
+$$
+\grad_\theta \EE(1) &= \grad_\theta \int_\tau P(\tau \mid \theta) d\tau \\
+&= \int_\tau \grad_\theta P(\tau \mid \theta) d \tau \\
+&= \int_\tau P(\tau \mid \theta) \frac{\grad_\theta P(\tau \mid \theta)}{P(\tau
+\mid \theta)} d \tau \\
+&= \int_\tau P(\tau \mid \theta) \grad_\theta \log P(\tau \mid \theta) d \tau \\
+&= \EE_\tau (\grad_\theta \log P(\tau \mid \theta)).
+$$
+
+The left hand side equals zero, since it is the derivative of a constant. The
+right hand side simplifies to give
+
+$$
+P(\tau \mid \theta) &= \left( P(s_0) \prod_{t=1}^T P(s_t \mid s_{t-1})
+P(a_t \mid s_{t-1}, \theta) \right).
+$$
+
+Since only $P(a_t \mid s_t, \theta)$ depends on $\theta$, and since $\log$
+takes products to sums, we end up with
+
+$$
+\EE_\tau (\grad_\theta \log P(\tau \mid \theta)) &= \EE_\tau (\sum_{t=1}^{T-1}
+\grad_\theta \log \pi(a_t \mid s_t, \theta).
+$$
+
+The same calculation, multiplying through by $b_t$ (only a function of states up
+to time $t$) implies that
+-->
+
+This follows by the same trick as last time, where we both multiply and divide
+by $P(\tau \mid \theta)$ inside the expectation. When we now include the $b_t$
+(which is constant), we thus also get zero expectation. Hence the following two
+expectations are equal
+
+$$
+\EE (\sum_{t=0}^{T-1} \grad_\theta \log \pi (a_t \mid x_t; \theta) (R_\tau - b_t))
+= \EE (\sum_{t=0}^{T-1} \grad_\theta \log \pi (a_t \mid x_t; \theta) R_\tau).
 $$
 
 If we take $b_t = r_1 + \cdots + r_{t-1}$, then we arrive at the estimator
 
 $$
-\sum_{t=0}^{T-1} \grad_\theta \log \pi (a_t | x_t; \theta) R_t
+\sum_{t=0}^{T-1} \grad_\theta \log \pi (a_t \mid x_t; \theta) R_t
 $$
 
 of the gradient.
@@ -207,7 +261,7 @@ expected sum of rewards when starting in state $s$ and following policy $\pi$.
 Formally,
 
 $$
-    V_\pi(s) = \EE_\tau( R_\tau | s_0 = s, \pi ).
+    V_\pi(s) = \EE_\tau( R_\tau \mid s_0 = s, \pi ).
 $$
 
 Even more formally, let $s_0 = s$ and $s_t, a_t$ be generated by the following
@@ -225,7 +279,7 @@ This is the expected sum of rewards when starting in state $s$, taking action
 $a$ and from then on following the policy $\pi$. We have
 
 $$
-    Q_\pi(s, a) = \EE_\tau( R_\tau | s_0 = s, a_0 = a, a_t \sim \pi ).
+    Q_\pi(s, a) = \EE_\tau( R_\tau \mid s_0 = s, a_0 = a, a_t \sim \pi ).
 $$
 
 More formally, let $s_0 = s, a_0 = a$, and let $s_t, a_t$ be generated by the
@@ -242,7 +296,7 @@ process just described.
 One can then see that $Q_\pi$ and $V_\pi$ satisfy the following equation:
 
 $$
-    Q_\pi(s, a) = \EE(r_1 | s_0 = s, a_0 = a) + \EE_{s_1} (V_\pi(s_1)).
+    Q_\pi(s, a) = \EE(r_1 \mid s_0 = s, a_0 = a) + \EE_{s_1} (V_\pi(s_1)).
 $$
 
 In words: the left hand side is the expected total reward when starting in state
@@ -264,6 +318,7 @@ $$
     \sum_{t=0}^{T-1} \grad_\theta \log \pi(a_t \mid s_t; \theta) (R_t -
     b_t(s_t)),
 $$
+
 where $b_t(s_t)$ is an estimate of $V_\pi(s_t)$, which we learn simultaneously.
 
 ## Advantage actor-critic ##
@@ -276,10 +331,11 @@ the value function, while the actor refers to the estimate of the policy.
 initialise parameters theta_pi for policy pi
 initialise parameters theta_v for value estimate V
 choose max_t (e.g. 20)
+choose max_training_steps (e.g. 100 million)
 choose discount factor gamma
 
 # Update parameters once each time through this loop
-for T in range(max_T):
+for T in range(max_training_steps):
     s = current state of emulator
     initialise array rewards
     for t in range(max_t):
@@ -306,6 +362,15 @@ for T in range(max_T):
 
     update theta_pi, theta_v by the computed gradients
 ~~~~
+
+Here `discounted(rewards, gamma)` takes an array $[r_1, r_2, \ldots, r_n]$ and a
+discount factor $0 < \gamma \le 1$ and computes the array $[R_1, \ldots, R_n]$,
+where $R_t = \sum_{t'=t}^n \gamma^{t'-t} r_{t'}$. Thus $R_t$ is the discounted
+sum of rewards from time $t$ onwards. Note that the last value in the array,
+$r_n$, isn't actually the reward that the agent receives at time $n$, and is in
+fact either 0 (if the frame was terminal) or is the agent's estimate of the
+value of the state that the agent just transitioned to (and hasn't been able to
+act on).
 
 ## Asynchronous advantage actor-critic ##
 
@@ -345,7 +410,12 @@ with the number of agents.
 
 ### The code ###
 
-Let's implement the algorithm now. The full code can be found as the files `custom_gym.py`, `a3c.py`, `agent.py` in [this](https://github.com/cgnicholls/reinforcement-learning/tree/master/a3c) github repository. There are a few simplifications in the code below, as I felt it was easier to explain without including things like saving and restoring to
+Let's implement the algorithm now. The full code can be found as the files
+`custom_gym.py`, `a3c.py`, `agent.py` in
+[this](https://github.com/cgnicholls/reinforcement-learning/tree/master/a3c)
+github repository. There are a few simplifications in the code below, as I felt
+it was easier to explain without including things like saving and restoring in
+tensorflow.
 
 ## Wrapper around Open AI Gym ##
  First we'll write a small wrapper around Open AI Gym to give us more control about what the agent sees. We'll see in the tricks section that it's important to preprocess the images. This includes something called 'frame skipping', which is where we only show the agent every $n$th frame for some small $n$. Open AI Gym lets us hold multiple instances of an environment. In the main training program, we create an environment using:
