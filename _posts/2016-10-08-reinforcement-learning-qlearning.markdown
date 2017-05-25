@@ -260,7 +260,7 @@ We then follow the $\epsilon$-greedy policy with the current $Q$-function. For e
         all_rewards.append(t)
 ~~~~
 
-Still inside the main (over episodes) for-loop, we now get to the training part. We don't train until we've collected a good few transitions though (another hyperparameter to tune!). 
+Still inside the main (over episodes) for-loop, we now get to the training part. We don't train until we've collected a good few transitions though (another hyperparameter to tune!). Once we have, we sample `batch_size` of the transitions and compute the `next_qs` for each one. For this, we just run the target network with the `next_states`, take the maximum over the actions (for each one), and then scale with the discount factor and whether or not the frame was terminal.
 
 ~~~~python
         # Only train if we have enough transitions
@@ -285,6 +285,11 @@ Still inside the main (over episodes) for-loop, we now get to the training part.
                 tf_next_q: target_qs,
                 tf_action: actions
             })
+~~~~
+
+Print out the loss after every 100 episodes and update the target network every `update_target_every` episodes.
+
+~~~~python
             if ep % 100 == 0:
                 print "Loss:", loss
                 print "Average ep length", np.mean(all_rewards)
