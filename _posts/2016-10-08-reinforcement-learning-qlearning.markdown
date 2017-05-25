@@ -272,9 +272,8 @@ def qlearning(env, input_dim, num_actions, max_episodes=100000, update_target_ev
                 print "Updating target"
                 sess.run(update_ops)
 ~~~~
-
 Finally, we $Q$-learn!
 
 ~~~~python
 qlearning(gym.make('CartPole-v0'), 4, 2)
-~~~~python
+~~~~
