@@ -183,12 +183,23 @@ def update_ops_from_to(from_scope, to_scope):
     return ops
 ~~~~
 
+Next we define the main $Q$-learning function. We create two networks: the `current` network and the `target` network, as well as creating the operations in tensorflow to update the `target` network to equal the `current` network.
+
+We then define the loss function that we want to minimise. Suppose we are given a transition $(s, a, r, s', \tau)$, where $s$ is the current state, $a$ is the action we took, $r$ is the reward we received, $s'$ is the state we transitioned to, and $\tau$ is a boolean denoting whether or not the state was terminal. Then the loss for this transition is defined as
+
+$$
+L(s, a, r, s', \tau) = (Q(s, a) - r - \gamma \mathbb{1}_{\tau=0} \max_{a'} Q^\textrm{target}(s', a'))^2.
+$$
+
+Here I'm using the notation $\mathbb{1}_{\tau=0}$ to mean the constant 1 if $\tau$ is false and otherwise 0. In the following, we pass in the state, action and reward for a given transition. But instead of also passing in the next state and computing the final term in the loss function, we compute this separately and pass that in as `tf_next_q`. This ensures that we don't train the target network also when minimising the loss (we want to keep that fixed until we update it). Also it is slightly easier to program this way.
+
+To compute the $Q$-value for $s, a$ we actually compute the $Q$-values for $s$ (i.e. for all $a$) and then just take the dot product with the one-hot vector that has a one in the index corresponding to $a$. This ensures the computation is vectorised. Finally, we just compute the loss and tell tensorflow to minimise it using the Adam optimiser.
 
 ~~~~python
 def qlearning(env, input_dim, num_actions, max_episodes=100000, update_target_every=2000, min_transitions=10000, batch_size=128, discount=0.9):
     transitions = deque()
 
-    # Create the current network as well as the target network.
+    # Create the current network as well as the target network. The dimensions given in hidden_dims define the sizes of the hidden layers (if any).
     hidden_dims = []
     input_layer, output_layer = create_network(input_dim, hidden_dims, num_actions, 'current')
     target_input_layer, target_output_layer = create_network(input_dim, hidden_dims, num_actions, 'target')
@@ -203,7 +214,13 @@ def qlearning(env, input_dim, num_actions, max_episodes=100000, update_target_ev
     tf_loss = tf.reduce_mean(tf.square(tf_q_for_action - tf_reward - tf_next_q))
 
     tf_train_op = tf.train.AdamOptimizer(learning_rate=1e-5).minimize(tf_loss)
+~~~~
 
+Next we set up the session and do some book-keeping for tracking the loss and average reward. Then we have the main for-loop over all episodes. For each episode, we reset the environment and store the first state, using `state = env.reset()`, and start the loop for this episode.
+
+We then follow the $\epsilon$-greedy policy with the current $Q$-function. For each step, with probability $\epsilon$ we choose an action randomly. With probability $1-\epsilon$ we actually compute the $Q$-value for the current state and choose the action with highest $Q$-value. We store all the transitions we see in the `transitions` deque (double ended queue) and also keep track of rewards.
+
+~~~~python
     sess = tf.Session()
     sess.run(tf.global_variables_initializer())
 
@@ -215,6 +232,8 @@ def qlearning(env, input_dim, num_actions, max_episodes=100000, update_target_ev
     for ep in xrange(max_episodes):
         state = env.reset()
         terminal = False
+
+        # Gradually anneal epsilon to 0.01.
         epsilon -= 0.0001
         if epsilon <= 0.01:
             epsilon = 0.01
@@ -239,7 +258,11 @@ def qlearning(env, input_dim, num_actions, max_episodes=100000, update_target_ev
                 print "Maximum episode length"
                 break
         all_rewards.append(t)
+~~~~
 
+Still inside the main (over episodes) for-loop, we now get to the training part. We don't train until we've collected a good few transitions though (another hyperparameter to tune!). 
+
+~~~~python
         # Only train if we have enough transitions
         if len(transitions) >= min_transitions:
             samples = sample(transitions, batch_size)
@@ -272,6 +295,7 @@ def qlearning(env, input_dim, num_actions, max_episodes=100000, update_target_ev
                 print "Updating target"
                 sess.run(update_ops)
 ~~~~
+
 Finally, we $Q$-learn!
 
 ~~~~python
