@@ -85,7 +85,7 @@ $$
 \end{align*}
 $$
 
-Then we just substitute these expressions into 
+Then we just substitute these expressions into
 
 $$
 \hat{g}(\tau) = (\sum_{t'=1}^T r_{t'}) \sum_{t=0}^{T-1} \grad_\theta \log
@@ -111,6 +111,7 @@ Improvement to make: replace $R_\tau$ with the advantage:
 $$
 A_\tau \coloneqq R_\tau - b,
 $$
+
 where $$b$$ is some baseline estimate of the value. This has the same
 expectation as $$R_\tau$$ but a lower variance, which makes it easier for the
 model to converge.
