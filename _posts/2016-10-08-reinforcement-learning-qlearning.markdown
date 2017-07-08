@@ -96,19 +96,19 @@ Similarly, we define the optimal value function $V^*$ as the maximum expected re
 
 $$
 V^* \colon \Sigma \to \RR \\
-V^*(x) = \max_\pi V^\pi(x).
+V^* (x) = \max_\pi V^\pi(x).
 $$
 
 Intuitively, the optimal value function tells us the highest value we could possibly achieve by using any policy when starting in state $x$.
 
-Note that actually knowing $Q^*$ is more immediately helpful than knowing $V^*$, since if we know $Q^*$ then we can recover an optimal policy as follows:
+Note that actually knowing $Q^* $ is more immediately helpful than knowing $V^* $, since if we know $Q^* $ then we can recover an optimal policy as follows:
 
 $$
 \pi^* \colon \Sigma \to A \\
 \pi^*(x) = \argmax_a Q^*(x, a).
 $$
 
-That is, in state $x$ we choose the action with highest $Q^*$-value. This makes sense because if we choose that action, our expected value from the next state onwards is maximised. This is encapsulated in the Bellman-equation
+That is, in state $x$ we choose the action with highest $Q^* $-value. This makes sense because if we choose that action, our expected value from the next state onwards is maximised. This is encapsulated in the Bellman-equation
 
 $$
 Q^*(x, a) = \EE_{x' \sim \mathcal{P}}[r + \gamma \max_{a'} Q^*(x', a') | x, a].
@@ -119,7 +119,7 @@ choosing action $a$ is the expected reward of being in state $s$ and choosing
 action $a$ plus the expected maximum $Q$-value over all actions in the next
 state.
 
-Note that the policy derived from $Q^*$ is actually deterministic (i.e. the distribution over actions in a given state is just to choose one action with probability 1). This makes sense because in any Markov Decision Process there is actually a deterministic optimal policy.
+Note that the policy derived from $Q^* $ is actually deterministic (i.e. the distribution over actions in a given state is just to choose one action with probability 1). This makes sense because in any Markov Decision Process there is actually a deterministic optimal policy.
 
 # How to use $Q$-learning to improve a policy #
 OK, so if we know the optimal $Q$-function then we're done! But how do we get this?
@@ -132,7 +132,7 @@ Q^\pi(x, a) = \EE[r_1 \mid x_0 = x, a_0 = a] + \gamma V^\pi(x_1).
 $$
 -->
 
-Most approaches for learning $Q^*$ in reinforcement learning involve some kind of optimisation process where you start with an initial estimate of $Q^*$ and gradually improve it.
+Most approaches for learning $Q^* $ in reinforcement learning involve some kind of optimisation process where you start with an initial estimate of $Q^* $ and gradually improve it.
 
 For a finite state space, and if it is small enough, it is possible to converge
 on the optimal $Q$-function by a process called $Q$-value iteration. However, we
